@@ -554,6 +554,7 @@ const App = {
 
     this._renderContent();
     this._applyStyle();
+    this._setupPrompterScrollInteractions();
 
     document.getElementById('pauseBtn').innerHTML = '&#x23F8;';
     document.getElementById('overlayOpacity').value = this.state.opacity;
