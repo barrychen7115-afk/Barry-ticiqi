@@ -21,19 +21,22 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Bundle SpeechRecognition plugin (esbuild)
-        run: |
-          npx esbuild www/js/sr-entry.js --bundle --outfile=www/js/sr-bundle.js --format=iife --platform=browser
-          echo "SR bundle size: $(wc -c < www/js/sr-bundle.js) bytes"
-
       - name: Add iOS platform
         run: npx cap add ios
 
-      - name: Add camera permission to Info.plist
+      - name: Generate app icon (tech style)
+        run: python3 scripts/generate-icon.py
+
+      - name: Install Capacitor Assets tool
+        run: npm install -g @capacitor/assets
+
+      - name: Generate iOS icons
+        run: npx capacitor-assets generate --ios --iconBackgroundColor '#0a0f28' --iconBackgroundColorDark '#0a0f28' --splashBackgroundColor '#0a0f28' --splashBackgroundColorDark '#0a0f28' --logoSplashScale 0.4
+
+      - name: Add permissions to Info.plist
         run: |
-          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器需要使用相机来显示拍摄画面，提词文字将悬浮在相机上方'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要使用麦克风来识别您的朗读内容，实现AI智能跟读'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string '智能提词器需要使用语音识别来分析您的朗读进度，实现文字跟随滚动'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要麦克风检测您的朗读音量，实现AI音量感应跟读'" ios/App/App/Info.plist
 
       - name: Sync web assets to iOS
         run: npx cap sync ios
