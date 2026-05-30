@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- iOS WebView 专属 viewport -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<title>智能提词器 Pro</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<div class="header">
+  <div class="app-icon">&#x1F3AC;</div>
+  <div class="app-title">智能提词器 Pro</div>
+  <div class="app-sub">Teleprompter &middot; iPhone 13 专属</div>
+  <div class="badge-row">
+    <span class="badge">&#x1F916; AI 智能跟读</span>
+    <span class="badge">&#x1F3A8; 自定义样式</span>
+    <span class="badge">&#x1FA9F; 悬浮窗模式</span>
+    <span class="badge">&#x1F4F1; 离线运行</span>
+  </div>
+</div>
+
+<!-- ===== PAGES ===== -->
+<div class="pages-container">
+
+  <!-- PAGE: HOME -->
+  <div class="page active" id="page-home">
+    <div class="main">
+      <div class="card">
+        <div class="card-title">&#x1F4DD; 台词文本</div>
+        <textarea class="script-area" id="scriptInput" placeholder="在这里输入您的台词、演讲稿或脚本...&#10;&#10;例如：大家好，今天我来分享一个让我受益匪浅的话题...">大家好，欢迎来到我的频道。今天我想和大家聊聊关于健康饮食的重要性。
+
+首先，我们来了解一下什么是均衡饮食。均衡饮食不只是吃各种蔬菜水果，而是确保我们每天摄入足够的蛋白质、碳水化合物和健康脂肪。
+
+研究表明，坚持健康饮食习惯的人，不仅身体更健康，精神状态也会更好。今天就让我们一起来学习几个简单易行的健康饮食小技巧吧！</textarea>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x26A1; 快速设置</div>
+        <div class="control-row">
+          <span class="control-label"><span class="icon">&#x1F680;</span>滚动速度</span>
+          <div class="speed-btns" style="flex:1;margin-left:12px">
+            <div class="speed-btn" onclick="App.setSpeed(0.5, this)">慢</div>
+            <div class="speed-btn active" onclick="App.setSpeed(1, this)">适中</div>
+            <div class="speed-btn" onclick="App.setSpeed(1.8, this)">快</div>
+            <div class="speed-btn" onclick="App.setSpeed(2.8, this)">极快</div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label"><span class="icon">&#x1F441;</span>透明度</span>
+          <div class="slider-wrap">
+            <input type="range" min="10" max="100" value="85" id="opacitySlider" oninput="App.updateOpacity(this.value)">
+            <span class="slider-val" id="opacityVal">85%</span>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label"><span class="icon">&#x1F916;</span>AI跟读</span>
+          <label class="toggle">
+            <input type="checkbox" id="aiToggle" checked onchange="App.toggleAI(this.checked)">
+            <span class="toggle-track"></span>
+            <span class="toggle-thumb"></span>
+          </label>
+          <span class="toggle-label" id="aiLabel" style="margin-left:8px;font-size:13px;color:var(--accent)">已开启</span>
+        </div>
+      </div>
+
+      <button class="btn-primary" onclick="App.startPrompter()" id="startBtn">
+        <span>&#x25B6;</span> 开始提词
+      </button>
+
+      <div class="btn-row">
+        <button class="btn-half" onclick="App.clearScript()">&#x1F5D1; 清空</button>
+        <button class="btn-half" onclick="App.loadSample()">&#x1F4C4; 示例文本</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: STYLE -->
+  <div class="page" id="page-style">
+    <div class="main">
+      <div class="card">
+        <div class="card-title">&#x1F3A8; 字体颜色</div>
+        <div class="color-strip">
+          <div class="color-dot active" style="background:#FFFFFF" onclick="App.setColor('#FFFFFF', this)" title="白色"></div>
+          <div class="color-dot" style="background:#FFD60A" onclick="App.setColor('#FFD60A', this)" title="黄色"></div>
+          <div class="color-dot" style="background:#30D158" onclick="App.setColor('#30D158', this)" title="绿色"></div>
+          <div class="color-dot" style="background:#5AC8FA" onclick="App.setColor('#5AC8FA', this)" title="天蓝"></div>
+          <div class="color-dot" style="background:#FF9F0A" onclick="App.setColor('#FF9F0A', this)" title="橙色"></div>
+          <div class="color-dot" style="background:#FF453A" onclick="App.setColor('#FF453A', this)" title="红色"></div>
+          <div class="color-dot" style="background:#BF5AF2" onclick="App.setColor('#BF5AF2', this)" title="紫色"></div>
+          <div class="color-dot" style="background:#FF375F" onclick="App.setColor('#FF375F', this)" title="粉红"></div>
+          <div class="color-custom" title="自定义">
+            <input type="color" id="customColor" oninput="App.setColor(this.value, null)" value="#FFFFFF">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F4D0; 字体大小</div>
+        <div class="control-row">
+          <span class="control-label">&#x1F524; 大小</span>
+          <div class="slider-wrap">
+            <input type="range" min="14" max="48" value="24" id="fontSizeSlider" oninput="App.updateFontSize(this.value)">
+            <span class="slider-val" id="fontSizeVal">24px</span>
+          </div>
+        </div>
+        <div class="font-preview" id="fontPreview" style="color:#FFFFFF;font-size:24px">
+          预览文字 Preview Text
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1FAAA; 窗口透明度</div>
+        <div class="control-row">
+          <span class="control-label">&#x1F4A7; 透明度</span>
+          <div class="slider-wrap">
+            <input type="range" min="10" max="100" value="85" id="opacitySlider2" oninput="App.updateOpacity(this.value)">
+            <span class="slider-val" id="opacityVal2">85%</span>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+          &#x1F4A1; 建议透明度 70–90%，保留文字清晰度同时不遮挡拍摄画面
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F3AD; 背景样式</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div class="speed-btn active" onclick="App.setBgStyle('blur', this)" style="flex:0 0 auto;padding:8px 14px">毛玻璃</div>
+          <div class="speed-btn" onclick="App.setBgStyle('dark', this)" style="flex:0 0 auto;padding:8px 14px">纯黑</div>
+          <div class="speed-btn" onclick="App.setBgStyle('dark-blue', this)" style="flex:0 0 auto;padding:8px 14px">深蓝</div>
+          <div class="speed-btn" onclick="App.setBgStyle('gradient', this)" style="flex:0 0 auto;padding:8px 14px">渐变</div>
+          <div class="speed-btn" onclick="App.setBgStyle('none', this)" style="flex:0 0 auto;padding:8px 14px">无背景</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F4CF; 行间距</div>
+        <div class="control-row">
+          <span class="control-label">&#x2195;&#xFE0F; 行距</span>
+          <div class="speed-btns" style="flex:1;margin-left:12px">
+            <div class="speed-btn" onclick="App.setLineHeight(1.4, this)">紧凑</div>
+            <div class="speed-btn active" onclick="App.setLineHeight(1.9, this)">标准</div>
+            <div class="speed-btn" onclick="App.setLineHeight(2.5, this)">宽松</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: AI -->
+  <div class="page" id="page-ai">
+    <div class="main">
+      <div class="about-card" style="background:linear-gradient(135deg,rgba(48,209,88,0.15),rgba(90,200,250,0.1));border-color:rgba(48,209,88,0.3)">
+        <div style="font-size:36px;margin-bottom:8px">&#x1F916;</div>
+        <div class="about-title">AI 智能跟读引擎</div>
+        <div class="about-desc">基于实时语音识别，自动追踪您朗读的位置，即使漏读一两个字也能精准跟进，无需手动控制。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F3AF; 跟读灵敏度</div>
+        <div class="control-row">
+          <span class="control-label">&#x26A1; 灵敏度</span>
+          <div class="slider-wrap">
+            <input type="range" min="1" max="10" value="7" id="sensitivitySlider" oninput="App.updateSensitivity(this.value)">
+            <span class="slider-val" id="sensitivityVal">7</span>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+          &#x1F4A1; 灵敏度越高，跟踪越激进；漏字时建议设置为 6–8
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F9E0; 跟读算法</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="speed-btn active" onclick="App.setAlgoMode('fuzzy', this)" style="padding:12px;text-align:left">
+            <strong>模糊匹配 (推荐)</strong><br>
+            <span style="font-size:12px;color:var(--text-muted)">允许漏读1-3个字，容错率高</span>
+          </div>
+          <div class="speed-btn" onclick="App.setAlgoMode('strict', this)" style="padding:12px;text-align:left">
+            <strong>严格匹配</strong><br>
+            <span style="font-size:12px;color:var(--text-muted)">精确匹配每个字，不允许漏读</span>
+          </div>
+          <div class="speed-btn" onclick="App.setAlgoMode('semantic', this)" style="padding:12px;text-align:left">
+            <strong>语义匹配 (AI)</strong><br>
+            <span style="font-size:12px;color:var(--text-muted)">理解语义，可处理即兴发挥</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F50A; 语音引擎</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="control-row">
+            <span class="control-label">离线引擎</span>
+            <label class="toggle">
+              <input type="checkbox" checked>
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted)">使用 iOS 原生语音识别，无需联网，保护隐私</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">&#x1F4CA; 跟读演示</div>
+        <div style="background:var(--surface2);border-radius:10px;padding:14px;font-size:13px;line-height:2" id="aiDemoText">
+          <span class="word read">大家好</span>，
+          <span class="word read">欢迎来到</span>
+          <span class="word read">我的</span>
+          <span class="word current" style="color:#FFD60A;background:rgba(255,214,10,0.2)">频道</span>。
+          <span class="word upcoming">今天我想</span>
+          <span class="word upcoming">和大家聊聊</span>
+          <span class="word upcoming">关于健康</span>
+          <span class="word upcoming">饮食</span>...
+        </div>
+        <button class="btn-primary" style="margin-top:12px;padding:12px" onclick="App.runDemo()">&#x25B6; 运行演示</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAGE: ABOUT -->
+  <div class="page" id="page-about">
+    <div class="main">
+      <div class="about-card">
+        <div class="app-icon" style="width:64px;height:64px;margin:0 auto 12px;border-radius:16px;font-size:28px">&#x1F3AC;</div>
+        <div class="about-title">智能提词器 Pro</div>
+        <div class="app-sub" style="color:var(--text-muted);font-size:13px;margin-top:4px">v1.0.0 &middot; iPhone 13 优化版</div>
+        <div class="about-desc" style="margin-top:12px">专为短视频创作者设计的专业提词器，支持 AI 智能跟读，让您从此告别背稿烦恼。</div>
+      </div>
+
+      <div class="features">
+        <div class="feature-item">
+          <div class="feature-icon">&#x1FA9F;</div>
+          <div class="feature-name">悬浮窗模式</div>
+          <div class="feature-desc">拖拽悬浮在任意位置，不遮挡主要拍摄区域</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">&#x1F916;</div>
+          <div class="feature-name">AI 智能跟读</div>
+          <div class="feature-desc">实时语音识别，漏字容错，自动追踪当前位置</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">&#x1F3A8;</div>
+          <div class="feature-name">完全自定义</div>
+          <div class="feature-desc">颜色、大小、透明度、背景全部可调</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">&#x1F4F4;</div>
+          <div class="feature-name">完全离线</div>
+          <div class="feature-desc">无需联网，保护您的台词内容隐私安全</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">&#x26A1;</div>
+          <div class="feature-name">极速响应</div>
+          <div class="feature-desc">低延迟跟读，不打断您的拍摄节奏</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">&#x1F504;</div>
+          <div class="feature-name">镜像翻转</div>
+          <div class="feature-desc">支持水平镜像，兼容各类提词器支架</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BOTTOM NAV ===== -->
+<div class="bottom-nav">
+  <div class="nav-item active" onclick="App.switchPage('home')">
+    <span class="nav-icon">&#x1F3AC;</span> 提词器
+  </div>
+  <div class="nav-item" onclick="App.switchPage('style')">
+    <span class="nav-icon">&#x1F3A8;</span> 样式
+  </div>
+  <div class="nav-item" onclick="App.switchPage('ai')">
+    <span class="nav-icon">&#x1F916;</span> AI设置
+  </div>
+  <div class="nav-item" onclick="App.switchPage('about')">
+    <span class="nav-icon">&#x2139;&#xFE0F;</span> 关于
+  </div>
+</div>
+
+<!-- ===== PROMPTER OVERLAY ===== -->
+<div id="prompter-overlay">
+  <div class="camera-bg">
+    <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
+    <div class="camera-grid"></div>
+    <div class="camera-label">&#x1F4F7; 相机预览中</div>
+  </div>
+
+  <!-- AI Status Bar -->
+  <div class="ai-status-bar">
+    <div class="ai-waveform">
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div>
+    </div>
+    <div class="ai-status-text" id="aiStatusText">等待语音输入...</div>
+    <div class="ai-confidence" id="aiConfidence">--</div>
+  </div>
+
+  <!-- Floating Prompter Window -->
+  <div id="prompter-float">
+    <div class="prompter-titlebar">
+      <div class="prompter-titlebar-dots">
+        <div class="titlebar-dot dot-red"></div>
+        <div class="titlebar-dot dot-yellow"></div>
+        <div class="titlebar-dot dot-green"></div>
+      </div>
+      <div class="prompter-status">
+        <div class="status-dot listening" id="statusDot"></div>
+        <span id="statusText">AI 跟读中</span>
+      </div>
+    </div>
+    <div id="prompter-content"></div>
+    <div class="resize-handle"></div>
+  </div>
+
+  <!-- Overlay Bottom Controls -->
+  <div class="overlay-controls">
+    <button class="ov-btn ov-btn-secondary" onclick="App.resetPosition()" title="重置位置">&#x21A9;&#xFE0F;</button>
+    <button class="ov-btn ov-btn-main" onclick="App.togglePause()" id="pauseBtn">&#x23F8;</button>
+    <button class="ov-btn ov-btn-danger" onclick="App.stopPrompter()">&#x2715;</button>
+  </div>
+</div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="js/app.js"></script>
+
+</body>
+</html>

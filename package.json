@@ -1,0 +1,25 @@
+{
+  "name": "teleprompter-pro",
+  "version": "1.0.0",
+  "description": "智能提词器 Pro — AI 跟读 · 悬浮透明",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "npx serve www -l 3000",
+    "build": "npx cap sync",
+    "copy": "npx cap copy",
+    "open:ios": "npx cap open ios",
+    "update": "npx cap update"
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/camera": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

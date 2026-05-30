@@ -1,0 +1,57 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync web assets to iOS
+        run: npx cap sync ios
+
+      - name: Build unsigned iOS app
+        run: |
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -derivedDataPath ../DerivedData \
+            clean build
+
+      - name: Package as IPA
+        run: |
+          APP_PATH="ios/DerivedData/Build/Products/Release-iphoneos/App.app"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r teleprompter-pro.ipa Payload/
+          echo "IPA size: $(du -sh teleprompter-pro.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: teleprompter-pro
+          path: teleprompter-pro.ipa
+          retention-days: 30
