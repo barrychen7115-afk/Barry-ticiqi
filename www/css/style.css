@@ -472,6 +472,14 @@ input[type=range]::-webkit-slider-thumb {
   color: #000;
   font-size: 18px;
 }
+.bb-capture {
+  width: 42px; height: 42px;
+  background: rgba(255,255,255,0.9);
+  color: #000;
+  font-size: 18px;
+  border: 2px solid rgba(255,69,58,0.7);
+}
+.bb-capture:active { background: rgba(255,69,58,0.9); color: white; }
 .bb-spacer {
   width: 1px; height: 22px;
   background: rgba(255,255,255,0.12);

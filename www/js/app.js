@@ -1,6 +1,6 @@
 /**
- * 智能提词器 Pro — v2.4
- * 前置摄像头 · Web Speech 真·语音跟读 · 文字浮镜
+ * 智能提词器 Pro — v2.5
+ * 前置摄像头 · Capacitor 原生语音跟读 · 相机拍摄 · 文字浮镜
  * Capacitor · iPhone 13
  */
 
@@ -12,7 +12,7 @@ const App = {
     opacity: 90,
     lineHeight: 2.2,
     // 滚屏
-    scrollMode: 'auto',    // 'auto' | 'voice'
+    scrollMode: 'auto',    // 'auto' | 'ai'
     speed: 1,
     isPaused: false,
     isRunning: false,
@@ -23,18 +23,41 @@ const App = {
     // 相机
     cameraStream: null,
     hasCamera: false,
-    // 语音识别跟读
-    recognition: null,
+    // 语音识别跟读 (Capacitor 原生 SFSpeechRecognizer)
+    recognition: null,           // Capacitor SpeechRecognition 插件引用 或 Web Speech 实例
+    recognitionType: null,       // 'capacitor' | 'webspeech' | null
     isRecognitionActive: false,
-    lastRecognizedWords: '', // 上次识别到的文本，用于增量匹配
+    lastRecognizedWords: '',
     recognitionRestartTimer: null,
-    // 注意：NSSpeechRecognitionUsageDescription 已配置在 Info.plist
+    sensitivity: 7,              // 跟读灵敏度 1-10
+    algoMode: 'fuzzy',           // 'fuzzy' | 'strict' | 'semantic'
   },
 
   /* ─── 初始化 ─── */
   init() {
     document.addEventListener('gesturestart', e => e.preventDefault());
-    console.log('[提词器 v2.4] 前置镜头 · Web Speech 真跟读 · 文字浮镜');
+    console.log('[提词器 v2.5] 前置镜头 · 原生语音跟读 · 相机拍摄 · 文字浮镜');
+    // 预检测语音识别能力
+    this._detectSpeechCapability();
+  },
+
+  /** 检测可用的语音识别引擎 */
+  _detectSpeechCapability() {
+    // 方式1: Capacitor 原生 SpeechRecognition 插件 (iOS SFSpeechRecognizer)
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+      this.state.recognitionType = 'capacitor';
+      console.log('[Speech] 检测到原生识别引擎 (SFSpeechRecognizer)');
+      return;
+    }
+    // 方式2: Web Speech API (浏览器/Safari 测试用)
+    const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (WS) {
+      this.state.recognitionType = 'webspeech';
+      console.log('[Speech] 检测到 Web Speech API (浏览器模式)');
+      return;
+    }
+    this.state.recognitionType = null;
+    console.warn('[Speech] 无可用语音识别引擎');
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -103,11 +126,33 @@ const App = {
 
   /* ═══════ 模式切换 ═══════ */
   setScrollMode(mode) {
-    this.state.scrollMode = mode;
-    document.getElementById('modeAuto').classList.toggle('active', mode === 'auto');
-    document.getElementById('modeAI').classList.toggle('active', mode === 'voice');
-    if (mode === 'voice') {
-      this._startVoiceDetection();
+    // 兼容 'ai' 和 'voice' 两种传参
+    const normalized = (mode === 'ai' || mode === 'voice') ? 'ai' : 'auto';
+    this.state.scrollMode = normalized;
+    document.getElementById('modeAuto').classList.toggle('active', normalized === 'auto');
+    document.getElementById('modeAI').classList.toggle('active', normalized === 'ai');
+
+    // 同步主页 AI 开关
+    const aiToggle = document.getElementById('aiToggle');
+    if (aiToggle) aiToggle.checked = (normalized === 'ai');
+    const aiLabel = document.getElementById('aiLabel');
+    if (aiLabel) aiLabel.textContent = normalized === 'ai' ? '已开启' : '已关闭';
+
+    if (normalized === 'ai') {
+      if (this.state.recognitionType === null) {
+        // 还没检测过，重新检测
+        this._detectSpeechCapability();
+      }
+      if (this.state.recognitionType) {
+        this._startVoiceDetection();
+      } else {
+        alert('语音识别不可用\n\niOS WKWebView 不支持 Web Speech API。\n请确保已安装原生语音识别插件。');
+        this.state.scrollMode = 'auto';
+        document.getElementById('modeAuto').classList.add('active');
+        document.getElementById('modeAI').classList.remove('active');
+        if (aiToggle) aiToggle.checked = false;
+        if (aiLabel) aiLabel.textContent = '不可用';
+      }
     } else {
       this._stopVoiceDetection();
     }
@@ -147,37 +192,110 @@ const App = {
     this.state.hasCamera = false;
   },
 
-  /* ═══════ Web Speech 真·语音跟读 ═══════ */
+  /* ═══════ 原生语音跟读 (Capacitor SFSpeechRecognizer + Web Speech 回退) ═══════ */
   async _startVoiceDetection() {
     this._stopVoiceDetection();
 
+    if (this.state.recognitionType === 'capacitor') {
+      await this._startCapacitorRecognition();
+    } else if (this.state.recognitionType === 'webspeech') {
+      this._startWebSpeechRecognition();
+    } else {
+      console.warn('[Speech] 无可用识别引擎');
+    }
+  },
+
+  /** Capacitor 原生语音识别 (iOS SFSpeechRecognizer) */
+  async _startCapacitorRecognition() {
+    const SR = window.Capacitor.Plugins.SpeechRecognition;
+    if (!SR) {
+      console.warn('[Speech] Capacitor 插件未就绪');
+      return;
+    }
+
+    try {
+      // 检查权限
+      const permResult = await SR.requestPermission();
+      if (!permResult.granted) {
+        alert('需要语音识别权限才能使用 AI 跟读功能。\n请在系统设置中允许麦克风和语音识别。');
+        return;
+      }
+
+      // 检查可用性
+      const availResult = await SR.available();
+      if (!availResult.available) {
+        alert('此设备不支持语音识别。');
+        return;
+      }
+
+      this.state.isRecognitionActive = true;
+      console.log('[Speech] 原生识别引擎已启动');
+
+      // 监听部分结果（实时）
+      SR.addListener('partialResults', (data) => {
+        if (!this.state.isRecognitionActive) return;
+        if (!this.state.isRunning || this.state.isPaused) return;
+        if (this.state.scrollMode !== 'ai') return;
+
+        if (data.matches && data.matches.length > 0) {
+          const transcript = data.matches[0];
+          this.state.lastRecognizedWords = transcript;
+          this._processRecognizedText(transcript);
+        }
+      });
+
+      // 开始持续监听
+      await SR.start({
+        language: 'zh-CN',
+        maxResults: 2,
+        partialResults: true,
+        popup: false,  // 不显示系统弹窗
+      });
+
+    } catch (e) {
+      console.warn('[Speech] 原生识别启动失败:', e.message || e);
+      // 尝试用 Web Speech 回退
+      this._startWebSpeechRecognition();
+    }
+  },
+
+  /** Web Speech API 回退 (浏览器/Safari 测试用) */
+  _startWebSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[Speech] 浏览器不支持语音识别');
-      // 回退：自动滚屏
-      this.state.scrollMode = 'auto';
-      document.getElementById('modeAuto').classList.add('active');
-      document.getElementById('modeAI').classList.remove('active');
       return;
     }
 
     const rec = new SpeechRecognition();
-    rec.continuous = true;       // 持续监听，不因停顿而结束
-    rec.interimResults = true;   // 实时返回中间结果
-    rec.lang = 'zh-CN';          // 中文普通话
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'zh-CN';
     rec.maxAlternatives = 1;
 
-    rec.onresult = (event) => this._onSpeechResult(event);
+    rec.onresult = (event) => {
+      if (!this.state.isRecognitionActive) return;
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (!transcript.trim()) return;
+      this.state.lastRecognizedWords = transcript.trim();
+      this._processRecognizedText(transcript.trim());
+    };
+
     rec.onerror = (event) => {
       console.warn('[Speech] 识别错误:', event.error, event.message);
-      // 非致命错误（如 no-speech）自动重启
       if (event.error === 'no-speech' || event.error === 'aborted') {
-        this._scheduleRecognitionRestart();
+        this._scheduleWebSpeechRestart();
       }
     };
+
     rec.onend = () => {
-      console.log('[Speech] 识别会话结束，自动重启');
-      this._scheduleRecognitionRestart();
+      console.log('[Speech] Web Speech 会话结束');
+      if (this.state.isRecognitionActive) {
+        this._scheduleWebSpeechRestart();
+      }
     };
 
     this.state.recognition = rec;
@@ -186,9 +304,9 @@ const App = {
     try {
       rec.start();
       this.state.isRecognitionActive = true;
-      console.log('[Speech] 语音识别已启动 (zh-CN)');
+      console.log('[Speech] Web Speech 已启动');
     } catch (e) {
-      console.warn('[Speech] 启动失败:', e.message);
+      console.warn('[Speech] Web Speech 启动失败:', e.message);
     }
   },
 
@@ -198,15 +316,22 @@ const App = {
       clearTimeout(this.state.recognitionRestartTimer);
       this.state.recognitionRestartTimer = null;
     }
+    // 停止 Capacitor 原生识别
+    if (this.state.recognitionType === 'capacitor' && window.Capacitor?.Plugins?.SpeechRecognition) {
+      try {
+        window.Capacitor.Plugins.SpeechRecognition.stop();
+      } catch (e) { /* 忽略 */ }
+    }
+    // 停止 Web Speech 实例
     if (this.state.recognition) {
-      try { this.state.recognition.stop(); } catch (e) {}
+      try { this.state.recognition.stop(); } catch (e) { /* 忽略 */ }
       this.state.recognition = null;
     }
     this.state.lastRecognizedWords = '';
   },
 
-  /** 识别结束后延迟重启（处理短暂停顿） */
-  _scheduleRecognitionRestart() {
+  /** Web Speech 自动重启 */
+  _scheduleWebSpeechRestart() {
     if (!this.state.isRecognitionActive) return;
     if (this.state.recognitionRestartTimer) return;
     this.state.recognitionRestartTimer = setTimeout(() => {
@@ -214,31 +339,20 @@ const App = {
       if (!this.state.isRecognitionActive) return;
       const rec = this.state.recognition;
       if (rec) {
-        try { rec.start(); console.log('[Speech] 识别已重启'); }
+        try { rec.start(); console.log('[Speech] Web Speech 已重启'); }
         catch (e) { console.warn('[Speech] 重启失败:', e.message); }
       }
     }, 800);
   },
 
-  /** 处理识别结果 — 核心匹配逻辑 */
-  _onSpeechResult(event) {
+  /** 统一处理识别文本 */
+  _processRecognizedText(transcript) {
     if (!this.state.isRunning || this.state.isPaused) return;
-    if (this.state.scrollMode !== 'voice') return;
+    if (this.state.scrollMode !== 'ai') return;
+    if (!transcript || transcript.length < 2) return;
 
-    // 收集所有识别到的文本（取最后一段连续结果）
-    let transcript = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      transcript += event.results[i][0].transcript;
-    }
-    if (!transcript.trim()) return;
-
-    this.state.lastRecognizedWords = transcript.trim();
-    // console.log('[Speech] 识别:', this.state.lastRecognizedWords);
-
-    // 在脚本中找匹配位置
-    const matchIdx = this._findBestMatch(this.state.lastRecognizedWords);
+    const matchIdx = this._findBestMatch(transcript);
     if (matchIdx >= 0) {
-      // 找到了！跳到匹配位置
       this._jumpToWord(matchIdx);
     }
   },
@@ -388,8 +502,8 @@ const App = {
     // 自动滚屏
     this._startAutoScroll();
 
-    // 如果已选语音模式，启动音量感应
-    if (this.state.scrollMode === 'voice') {
+    // 如果已选语音模式，启动语音识别
+    if (this.state.scrollMode === 'ai') {
       this._startVoiceDetection();
     }
   },
@@ -414,7 +528,7 @@ const App = {
     const loop = () => {
       if (!this.state.isRunning) return;
       if (!this.state.isPaused && !this.state.textHidden) {
-        if (this.state.scrollMode === 'voice') {
+        if (this.state.scrollMode === 'ai') {
           // 语音模式：不自驱推进，仅刷新高亮
           this._highlightCurrent(true);
           this.state.scrollTimer = setTimeout(loop, 400);
@@ -492,7 +606,79 @@ const App = {
     }, 600);
   },
 
-  toggleAI() {}, updateSensitivity() {}, setAlgoMode() {},
+  toggleAI(checked) {
+    if (checked) {
+      this.setScrollMode('ai');
+    } else {
+      this.setScrollMode('auto');
+    }
+  },
+
+  updateSensitivity(val) {
+    this.state.sensitivity = parseInt(val);
+    const d = document.getElementById('sensitivityVal');
+    if (d) d.textContent = val;
+    // 灵敏度影响匹配阈值：值越高阈值越低（越容易匹配）
+  },
+
+  setAlgoMode(mode, el) {
+    this.state.algoMode = mode;
+    document.querySelectorAll('#page-ai .card:nth-child(3) .speed-btn').forEach(b => b.classList.remove('active'));
+    if (el) el.classList.add('active');
+  },
+
+  /* ═══════ 相机拍摄 ═══════ */
+  async capturePhoto() {
+    // 优先使用 Capacitor Camera 插件
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera) {
+      try {
+        const Camera = window.Capacitor.Plugins.Camera;
+        const photo = await Camera.getPhoto({
+          resultType: 'uri',
+          source: 'CAMERA',
+          direction: 'FRONT',
+          quality: 90,
+          saveToGallery: true,
+          width: 1920,
+          height: 1080,
+        });
+        console.log('[Camera] 拍照成功:', photo.path || photo.webPath);
+        // 拍照成功反馈
+        const flash = document.createElement('div');
+        flash.style.cssText = 'position:fixed;inset:0;background:white;z-index:9999;opacity:0.8;pointer-events:none';
+        document.body.appendChild(flash);
+        setTimeout(() => { flash.style.opacity = '0'; flash.style.transition = 'opacity 0.4s'; }, 50);
+        setTimeout(() => { flash.remove(); }, 500);
+        return;
+      } catch (e) {
+        console.warn('[Camera] Capacitor 拍照失败:', e.message || e);
+      }
+    }
+
+    // 回退：从视频流截取帧
+    const video = document.getElementById('cameraVideo');
+    if (!video || video.readyState < 2) {
+      alert('相机未就绪，无法拍摄');
+      return;
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1920;
+      canvas.height = video.videoHeight || 1080;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // 下载截图
+      const link = document.createElement('a');
+      link.download = 'teleprompter-' + Date.now() + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      console.log('[Camera] 截图已保存');
+    } catch (e) {
+      console.warn('[Camera] 截图失败:', e);
+      alert('拍摄失败: ' + (e.message || '未知错误'));
+    }
+  },
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
