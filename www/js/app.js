@@ -37,6 +37,8 @@ const App = {
     recordingTimer: null,
     recordingStartTime: 0,
     recordingSeconds: 0,
+    mediaRecorder: null,         // MediaRecorder 实例
+    recordedChunks: [],          // 录制的视频片段
   },
 
   /* ─── 初始化 ─── */
@@ -818,6 +820,7 @@ const App = {
     this.state.isRecording = true;
     this.state.recordingStartTime = Date.now();
     this.state.recordingSeconds = 0;
+    this.state.recordedChunks = [];
 
     // 显示计时器
     const timerEl = document.getElementById('recording-timer');
@@ -828,7 +831,61 @@ const App = {
     const btn = document.querySelector('.bb-capture');
     if (btn) { btn.style.background = '#FF453A'; btn.style.color = 'white'; }
 
+    // 启动 MediaRecorder 录制视频流
+    this._startMediaRecorder();
+
     console.log('[Camera] 录制开始');
+  },
+
+  _startMediaRecorder() {
+    const stream = this.state.cameraStream;
+    if (!stream) {
+      console.warn('[Camera] 无视频流，无法录制');
+      return;
+    }
+
+    try {
+      // 优先使用 mp4 格式（iOS 原生支持）
+      const mimeTypes = [
+        'video/mp4',
+        'video/mp4;codecs=avc1',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ];
+      let mimeType = '';
+      for (const mt of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mt)) {
+          mimeType = mt;
+          break;
+        }
+      }
+
+      const options = mimeType ? { mimeType } : {};
+      const recorder = new MediaRecorder(stream, options);
+      this.state.mediaRecorder = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          this.state.recordedChunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        this._saveRecordedVideo();
+      };
+
+      recorder.onerror = (e) => {
+        console.warn('[Camera] MediaRecorder 错误:', e.message || e);
+      };
+
+      // 每 1 秒收集一次数据（确保有数据）
+      recorder.start(1000);
+      console.log('[Camera] MediaRecorder 已启动，格式:', mimeType || '默认');
+
+    } catch (e) {
+      console.warn('[Camera] MediaRecorder 启动失败:', e.message || e);
+    }
   },
 
   _stopRecording() {
@@ -846,10 +903,71 @@ const App = {
     const btn = document.querySelector('.bb-capture');
     if (btn) { btn.style.background = 'rgba(255,255,255,0.9)'; btn.style.color = '#000'; }
 
-    // 拍摄一帧作为封面（canvas 截图）
-    this._takeCanvasSnapshot();
+    // 停止 MediaRecorder
+    const recorder = this.state.mediaRecorder;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop();
+        console.log('[Camera] MediaRecorder 已停止');
+      } catch (e) {
+        console.warn('[Camera] 停止 MediaRecorder 失败:', e.message || e);
+      }
+    } else {
+      // 如果没有 MediaRecorder，回退到截图
+      this._takeCanvasSnapshot();
+    }
 
     console.log('[Camera] 录制结束，时长:', this._formatTime(this.state.recordingSeconds));
+  },
+
+  /** 将录制的视频保存到相册 */
+  async _saveRecordedVideo() {
+    const chunks = this.state.recordedChunks;
+    if (!chunks || chunks.length === 0) {
+      console.warn('[Camera] 无录制数据');
+      return;
+    }
+
+    try {
+      // 合并所有片段为 Blob
+      const blob = new Blob(chunks, { type: chunks[0].type || 'video/mp4' });
+      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+      const filename = '逆象提词-' + Date.now() + '.' + ext;
+      const file = new File([blob], filename, { type: blob.type });
+
+      // 闪屏效果
+      const flash = document.createElement('div');
+      flash.style.cssText = 'position:fixed;inset:0;background:white;z-index:9999;opacity:0.6;pointer-events:none';
+      document.body.appendChild(flash);
+      requestAnimationFrame(() => { flash.style.transition = 'opacity 0.35s'; flash.style.opacity = '0'; });
+      setTimeout(() => flash.remove(), 400);
+
+      // 使用 navigator.share 保存视频（iOS 15+ WKWebView 兼容）
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: '逆象提词录制' });
+          console.log('[Camera] 视频已通过分享面板保存');
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            console.warn('[Camera] 分享失败:', e.message || e);
+          }
+        }
+      } else {
+        // 回退：创建 Blob URL 下载
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        console.log('[Camera] 视频已通过下载链接保存');
+      }
+
+    } catch (e) {
+      console.warn('[Camera] 保存视频失败:', e.message || e);
+    }
   },
 
   _updateRecordingTimer() {
