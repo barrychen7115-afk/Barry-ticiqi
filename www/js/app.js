@@ -1,7 +1,7 @@
 /**
- * 智能提词器 Pro — v2.0
- * 内置相机 + 悬浮窗 + 自动滚屏
- * Capacitor · iPhone 13
+ * 智能提词器 Pro — v2.1
+ * 原生 AI 语音跟读 + 高清内置相机 + 悬浮窗
+ * Capacitor + iOS SFSpeechRecognizer · iPhone 13
  */
 
 const App = {
@@ -11,8 +11,7 @@ const App = {
     opacity: 85,
     bgStyle: 'blur',
     lineHeight: 1.9,
-    speed: 1,              // 滚屏速度（基准间隔 ms / speed）
-    sensitivity: 7,
+    speed: 1,
     isPaused: false,
     isRunning: false,
     currentWordIndex: 0,
@@ -20,16 +19,116 @@ const App = {
     scrollTimer: null,
     cameraStream: null,
     hasCamera: false,
+    // 语音跟读状态
+    voiceFollowOn: true,
+    spokenBuffer: '',       // 累积的部分识别结果
+    lastSpokenWords: [],    // 最近识别到的词列表（用于匹配）
+    voiceFollowPaused: false,
   },
 
   /* ─── 初始化 ─── */
   init() {
     this._bindEvents();
-    console.log('[提词器 v2.0] 初始化完成 · 自动滚屏模式');
+    this._initSR();
+    console.log('[提词器 v2.1] SFSpeechRecognizer · 原生AI跟读 · 高清相机');
   },
 
   _bindEvents() {
     document.addEventListener('gesturestart', e => e.preventDefault());
+  },
+
+  /* ═══════ 原生语音识别 ═══════ */
+  _initSR() {
+    // 检测 Capacitor 和 speech-recognition 插件是否可用
+    this._hasSR = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition);
+    if (!this._hasSR) {
+      console.log('[提词器] 原生语音识别未加载（开发环境），将仅使用自动滚屏');
+    }
+  },
+
+  async _startSpeechRecognition() {
+    if (!this._hasSR) return;
+    try {
+      const { SpeechRecognition } = window.Capacitor.Plugins;
+      // 先请求权限
+      const perm = await SpeechRecognition.requestPermissions();
+      if (!perm.speechRecognition || perm.speechRecognition !== 'granted') {
+        console.warn('[提词器] 语音识别权限未授权');
+        return;
+      }
+      // 开始监听 partialResults
+      SpeechRecognition.addListener('partialResults', (data) => {
+        if (!this.state.isRunning || this.state.isPaused) return;
+        if (data.matches && data.matches.length > 0) {
+          this._onSpeechPartial(data.matches[0]);
+        }
+      });
+
+      // 开始识别
+      await SpeechRecognition.start({
+        language: 'zh-CN',
+        maxResults: 3,
+        partialResults: true,
+      });
+      console.log('[提词器] 原生语音识别已启动 (zh-CN)');
+      this.state.voiceFollowOn = true;
+    } catch (err) {
+      console.warn('[提词器] 语音识别启动失败：', err);
+      this.state.voiceFollowOn = false;
+    }
+  },
+
+  async _stopSpeechRecognition() {
+    if (!this._hasSR) return;
+    try {
+      const { SpeechRecognition } = window.Capacitor.Plugins;
+      await SpeechRecognition.stop();
+    } catch (e) { /* ignore */ }
+  },
+
+  /** 语音部分识别结果 → 匹配台词位置 */
+  _onSpeechPartial(spoken) {
+    if (!spoken || typeof spoken !== 'string') return;
+    // 累积口语结果，只保留最近 200 字
+    this.state.spokenBuffer = (this.state.spokenBuffer + ' ' + spoken).slice(-200);
+
+    // 把口语词拆出来
+    const spokenWords = this.state.spokenBuffer.match(/[\u4e00-\u9fa5]+|[a-zA-Z]+/g) || [];
+    if (spokenWords.length < 2) return;
+
+    // 从当前高亮位置往后搜索匹配
+    const script = this.state.words;
+    const start = this.state.currentWordIndex;
+    const end = Math.min(start + 30, script.length);
+
+    let bestMatch = -1;
+    let bestLen = 0;
+
+    for (let i = start; i < end; i++) {
+      let matchLen = 0;
+      for (let j = 0; j < spokenWords.length && (i + j) < script.length; j++) {
+        if (script[i + j] === spokenWords[j]) {
+          matchLen++;
+        } else {
+          break;
+        }
+      }
+      if (matchLen > bestLen && matchLen >= 2) {
+        bestLen = matchLen;
+        bestMatch = i;
+      }
+    }
+
+    // 如果匹配位置超前当前很多，快速跳到那里
+    if (bestMatch > start + 2) {
+      // 把中间跳过的词标记为已读
+      for (let k = start; k < bestMatch; k++) {
+        const el = document.getElementById('w' + k);
+        if (el) { el.className = 'word read'; el.style.color = ''; el.style.background = ''; }
+      }
+      this.state.currentWordIndex = bestMatch;
+      this._highlightCurrent(true);
+    }
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -105,7 +204,7 @@ const App = {
     content.style.fontSize = this.state.fontSize + 'px';
     content.style.lineHeight = this.state.lineHeight;
 
-    const alpha = this.state.opacity / 100;
+    const alpha = Math.max(0.1, this.state.opacity / 100);
     const bgMap = {
       'blur':       `rgba(10,10,20,${alpha})`,
       'dark':       `rgba(0,0,0,${alpha})`,
@@ -121,16 +220,21 @@ const App = {
       floatEl.style.webkitBackdropFilter = 'none';
     } else {
       floatEl.style.boxShadow = '0 8px 40px rgba(0,0,0,0.7)';
-      floatEl.style.backdropFilter = 'blur(12px)';
-      floatEl.style.webkitBackdropFilter = 'blur(12px)';
+      floatEl.style.backdropFilter = 'blur(20px)';
+      floatEl.style.webkitBackdropFilter = 'blur(20px)';
     }
   },
 
-  /* ═══════ 镜头 ═══════ */
+  /* ═══════ 高清镜头 ═══════ */
   async requestCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 30 } },
+        video: {
+          facingMode: 'environment',   // 后置镜头（iPhone 13 12MP 超高清）
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        },
         audio: false,
       });
       this.state.cameraStream = stream;
@@ -144,9 +248,31 @@ const App = {
       this.state.hasCamera = true;
       return true;
     } catch (err) {
-      console.warn('[提词器] 相机不可用：', err.message);
-      this.state.hasCamera = false;
-      return false;
+      console.warn('[提词器] 后置相机不可用，尝试前置：', err.message);
+      // 回退到前置镜头
+      try {
+        const stream2 = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        });
+        this.state.cameraStream = stream2;
+        const video2 = document.getElementById('cameraVideo');
+        if (video2) {
+          video2.srcObject = stream2;
+          await video2.play();
+        }
+        this.state.hasCamera = true;
+        return true;
+      } catch (err2) {
+        console.warn('[提词器] 相机完全不可用：', err2.message);
+        this.state.hasCamera = false;
+        return false;
+      }
     }
   },
 
@@ -178,6 +304,23 @@ const App = {
     });
   },
 
+  /* ═══════ 高亮当前词 ═══════ */
+  _highlightCurrent(smooth) {
+    const idx = this.state.currentWordIndex;
+    // 清除上一个高亮
+    if (idx > 0) {
+      const prev = document.getElementById('w' + (idx - 1));
+      if (prev) { prev.className = 'word read'; prev.style.color = ''; prev.style.background = ''; }
+    }
+    const cur = document.getElementById('w' + idx);
+    if (cur) {
+      cur.className = 'word current';
+      cur.style.color = '#FFD60A';
+      cur.style.background = 'rgba(255,214,10,0.25)';
+      cur.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'center' });
+    }
+  },
+
   /* ═══════ 开始提词 ═══════ */
   async startPrompter() {
     const text = document.getElementById('scriptInput').value.trim();
@@ -188,8 +331,9 @@ const App = {
     this.state.currentWordIndex = 0;
     this.state.isPaused = false;
     this.state.isRunning = true;
+    this.state.spokenBuffer = '';
+    this.state.lastSpokenWords = [];
 
-    // 显示 overlay
     const overlay = document.getElementById('prompter-overlay');
     overlay.style.display = 'block';
 
@@ -198,38 +342,43 @@ const App = {
     this._setupDrag();
 
     document.getElementById('pauseBtn').innerHTML = '&#x23F8;';
-    document.getElementById('floatTitle').textContent = '自动滚屏中';
+    document.getElementById('floatTitle').textContent = 'AI跟读中...';
     document.getElementById('overlayOpacity').value = this.state.opacity;
 
-    // 启动相机
+    // 启动相机（高清）
     await this.requestCamera();
 
-    // 启动自动滚屏
+    // 启动自动滚屏（作为保底）
     this._startAutoScroll();
+
+    // 启动原生语音识别跟读
+    this._startSpeechRecognition();
   },
 
-  /* 停止提词 */
   stopPrompter() {
     this.state.isRunning = false;
     document.getElementById('prompter-overlay').style.display = 'none';
     this._stopAutoScroll();
+    this._stopSpeechRecognition();
     this.releaseCamera();
   },
 
-  /* 暂停/继续 */
   togglePause() {
     this.state.isPaused = !this.state.isPaused;
     document.getElementById('pauseBtn').innerHTML = this.state.isPaused ? '&#x25B6;' : '&#x23F8;';
-    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : '自动滚屏中';
+    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : 'AI跟读中...';
   },
 
-  /* ═══════ 自动滚屏 ═══════ */
+  /* ═══════ 自动滚屏（备用/同步） ═══════ */
   _startAutoScroll() {
     this._stopAutoScroll();
-    const baseInterval = 420; // 基准毫秒
+    const baseInterval = 500;
     const loop = () => {
       if (!this.state.isRunning) return;
-      if (!this.state.isPaused) this._advanceWord();
+      if (!this.state.isPaused && !this.state.voiceFollowPaused) {
+        this._advanceWord();
+        this._highlightCurrent(true);
+      }
       this.state.scrollTimer = setTimeout(loop, baseInterval / this.state.speed);
     };
     this.state.scrollTimer = setTimeout(loop, baseInterval / this.state.speed);
@@ -251,21 +400,9 @@ const App = {
         const el = document.getElementById('w' + i);
         if (el) { el.className = 'word upcoming'; el.style.color = ''; el.style.background = ''; }
       });
+    } else {
+      this.state.currentWordIndex++;
     }
-
-    // 清除前一个高亮
-    const prev = document.getElementById('w' + (this.state.currentWordIndex - 1));
-    if (prev) { prev.className = 'word read'; prev.style.color = ''; prev.style.background = ''; }
-
-    // 高亮当前词
-    const cur = document.getElementById('w' + this.state.currentWordIndex);
-    if (cur) {
-      cur.className = 'word current';
-      cur.style.color = '#FFD60A';
-      cur.style.background = 'rgba(255,214,10,0.25)';
-      cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    this.state.currentWordIndex++;
   },
 
   /* ═══════ 速度微调 ═══════ */
@@ -283,18 +420,16 @@ const App = {
     const speeds = ['极慢', '慢', '适中', '快', '极快'];
     const idx = Math.round((this.state.speed - 0.3) / 0.925);
     const label = speeds[Math.min(4, Math.max(0, idx))] || '适中';
-    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : '滚屏 · ' + label;
+    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : 'AI跟读 · ' + label;
   },
 
   /* ═══════ overlay 透明度 ═══════ */
   updateOverlayOpacity(val) {
     this.state.opacity = parseInt(val);
-    // 同步主页和样式页的滑块
     const v1 = document.getElementById('opacityVal');
     const v2 = document.getElementById('opacityVal2');
     if (v1) v1.textContent = val + '%';
     if (v2) v2.textContent = val + '%';
-    // 同步滑块值
     const s1 = document.getElementById('opacitySlider');
     const s2 = document.getElementById('opacitySlider2');
     if (s1) s1.value = val;
@@ -343,7 +478,6 @@ const App = {
     document.addEventListener('touchend', onUp);
     document.addEventListener('touchcancel', onUp);
 
-    // PC 鼠标支持
     handle.addEventListener('mousedown', e => { onDown(e.clientX, e.clientY); });
     document.addEventListener('mousemove', e => { onMove(e.clientX, e.clientY); });
     document.addEventListener('mouseup', onUp);
@@ -369,10 +503,7 @@ const App = {
   _demoIdx: 0,
 
   runDemo() {
-    if (this._demoTimer) {
-      clearInterval(this._demoTimer); this._demoTimer = null;
-      return;
-    }
+    if (this._demoTimer) { clearInterval(this._demoTimer); this._demoTimer = null; return; }
     this._demoIdx = 0;
     const words = document.querySelectorAll('#aiDemoText .word');
     words.forEach(w => { w.className = 'word upcoming'; w.style.color = ''; w.style.background = ''; });
@@ -382,10 +513,9 @@ const App = {
         if (prev) { prev.className = 'word read'; prev.style.color = ''; prev.style.background = ''; }
       }
       if (this._demoIdx < words.length) {
-        const cur = words[this._demoIdx];
-        cur.className = 'word current';
-        cur.style.color = '#FFD60A';
-        cur.style.background = 'rgba(255,214,10,0.2)';
+        words[this._demoIdx].className = 'word current';
+        words[this._demoIdx].style.color = '#FFD60A';
+        words[this._demoIdx].style.background = 'rgba(255,214,10,0.2)';
         this._demoIdx++;
       } else {
         clearInterval(this._demoTimer); this._demoTimer = null;
@@ -405,6 +535,5 @@ const App = {
   },
 };
 
-/* 启动 */
 document.addEventListener('DOMContentLoaded', () => App.init());
 window.App = App;
