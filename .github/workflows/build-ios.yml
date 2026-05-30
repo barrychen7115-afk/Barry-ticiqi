@@ -19,19 +19,25 @@ jobs:
           node-version: "20"
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci
 
       - name: Add iOS platform
         run: npx cap add ios
 
-      - name: Generate app icon (tech style)
-        run: python3 scripts/generate-icon.py
+      - name: Generate app icon (Pillow)
+        run: |
+          pip3 install --quiet Pillow
+          python3 scripts/generate-icon.py
 
-      - name: Install Capacitor Assets tool
-        run: npm install -g @capacitor/assets
-
-      - name: Generate iOS icons
-        run: npx capacitor-assets generate --ios --iconBackgroundColor '#0a0f28' --iconBackgroundColorDark '#0a0f28' --splashBackgroundColor '#0a0f28' --splashBackgroundColorDark '#0a0f28' --logoSplashScale 0.4
+      - name: Generate iOS app icons
+        run: |
+          npm install -g @capacitor/assets
+          capacitor-assets generate --ios \
+            --iconBackgroundColor '#0a0f28' \
+            --iconBackgroundColorDark '#0a0f28' \
+            --splashBackgroundColor '#0a0f28' \
+            --splashBackgroundColorDark '#0a0f28' \
+            --logoSplashScale 0.4
 
       - name: Add permissions to Info.plist
         run: |
