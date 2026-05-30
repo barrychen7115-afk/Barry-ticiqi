@@ -49,22 +49,39 @@ const App = {
 
   /** 检测可用的语音识别引擎 */
   _detectSpeechCapability() {
-    // 方式1: Capacitor 原生环境 — 延迟到实际使用时注册（等 bridge 就绪后 PluginHeaders 才可用）
-    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    const isNative = window.Capacitor?.isNativePlatform?.() === true;
+    const hasPlugin = !!window.Capacitor?.Plugins?.SpeechRecognition;
+
+    if (isNative && hasPlugin) {
       this.state.recognitionType = 'capacitor';
-      this.state._srPlugin = null; // 延迟注册
-      console.log('[Speech] Capacitor 原生环境，插件将在 AI 模式启动时注册');
+      this.state._srPlugin = null;
+      console.log('[Speech] Capacitor 原生 SpeechRecognition 插件可用');
       return;
     }
-    // 方式2: Web Speech API (浏览器/Safari 测试用)
+
+    if (isNative && !hasPlugin && typeof window.Capacitor?.registerPlugin === 'function') {
+      try {
+        const sr = window.Capacitor.registerPlugin('SpeechRecognition', { web: () => ({}) });
+        if (sr) {
+          this.state.recognitionType = 'capacitor';
+          this.state._srPlugin = null;
+          console.log('[Speech] Capacitor SpeechRecognition 插件注册成功');
+          return;
+        }
+      } catch (e) {
+        console.warn('[Speech] Capacitor registerPlugin SpeechRecognition 失败:', e);
+      }
+    }
+
     const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (WS) {
       this.state.recognitionType = 'webspeech';
-      console.log('[Speech] 检测到 Web Speech API (浏览器模式)');
+      console.log('[Speech] 检测到 Web Speech API');
       return;
     }
+
     this.state.recognitionType = null;
-    console.warn('[Speech] 无可用语音识别引擎');
+    console.warn('[Speech] 当前平台无可用语音识别引擎');
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -131,6 +148,79 @@ const App = {
     content.style.opacity = this.state.opacity / 100;
   },
 
+  _showSpeechUnavailableMessage() {
+    alert(
+      'AI 跟读当前不可用。\n\n' +
+      '请确认你在 iOS 原生 Capacitor 应用中运行，并已经安装并同步 @capacitor-community/speech-recognition 插件。\n' +
+      '如果当前环境不支持语音识别，可以继续使用自动滚动或手动拖动文本。'
+    );
+  },
+
+  _setupPrompterScrollInteractions() {
+    if (this._prompterScrollEventsAttached) return;
+    const content = document.getElementById('prompter-content');
+    if (!content) return;
+    this._prompterScrollEventsAttached = true;
+
+    const startScroll = () => {
+      if (!this.state.isRunning) return;
+      this.state.userScrollActive = true;
+      this.state.isPaused = true;
+      this._showTapHint('已启用手动滚动');
+    };
+
+    const stopScroll = () => {
+      if (!this.state.userScrollActive) return;
+      if (this._scrollStopTimer) clearTimeout(this._scrollStopTimer);
+      this._scrollStopTimer = setTimeout(() => this._onScrollStopped(), 120);
+    };
+
+    const onScroll = () => {
+      if (!this.state.userScrollActive) return;
+      this.state.isPaused = true;
+      if (this._scrollStopTimer) clearTimeout(this._scrollStopTimer);
+      this._scrollStopTimer = setTimeout(() => this._onScrollStopped(), 180);
+    };
+
+    content.addEventListener('pointerdown', startScroll);
+    content.addEventListener('touchstart', startScroll);
+    content.addEventListener('mousedown', startScroll);
+    content.addEventListener('pointerup', stopScroll);
+    content.addEventListener('touchend', stopScroll);
+    content.addEventListener('mouseup', stopScroll);
+    content.addEventListener('scroll', onScroll);
+  },
+
+  _onScrollStopped() {
+    this.state.userScrollActive = false;
+    this._updateCurrentWordFromScroll();
+  },
+
+  _updateCurrentWordFromScroll() {
+    const content = document.getElementById('prompter-content');
+    if (!content || !this.state.words.length) return;
+
+    const centerY = content.scrollTop + content.clientHeight / 2;
+    let bestIdx = -1;
+    let bestDelta = Infinity;
+
+    this.state.words.forEach((_, i) => {
+      const el = document.getElementById('w' + i);
+      if (!el) return;
+      const mid = el.offsetTop + el.offsetHeight / 2;
+      const delta = Math.abs(mid - centerY);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestIdx = i;
+      }
+    });
+
+    if (bestIdx >= 0) {
+      this.state.currentWordIndex = bestIdx;
+      this._highlightCurrent(false);
+    }
+  },
+
   /* ═══════ 模式切换 ═══════ */
   setScrollMode(mode) {
     // 兼容 'ai' 和 'voice' 两种传参
@@ -153,7 +243,7 @@ const App = {
       if (this.state.recognitionType) {
         this._startVoiceDetection();
       } else {
-        alert('语音识别不可用\n\niOS WKWebView 不支持 Web Speech API。\n请确保已安装原生语音识别插件。');
+        alert('AI 跟读当前不可用。\n\n请确认你在 iOS 原生 Capacitor 应用中运行，并已经安装并同步 @capacitor-community/speech-recognition 插件。');
         this.state.scrollMode = 'auto';
         document.getElementById('modeAuto').classList.add('active');
         document.getElementById('modeAI').classList.remove('active');
@@ -214,20 +304,24 @@ const App = {
 
   /** Capacitor 原生语音识别 (iOS SFSpeechRecognizer) */
   async _startCapacitorRecognition() {
-    // 直接通过全局 Capacitor bridge 注册插件（此时 bridge 已就绪，PluginHeaders 可用）
-    if (!this.state._srPlugin && window.Capacitor && window.Capacitor.registerPlugin) {
+    // 尝试从 Capacitor.Plugins 获取或通过 registerPlugin 注册插件
+    if (!this.state._srPlugin && window.Capacitor) {
       try {
-        this.state._srPlugin = window.Capacitor.registerPlugin('SpeechRecognition');
-        console.log('[Speech] 插件已通过全局 Capacitor bridge 注册');
+        if (window.Capacitor.Plugins?.SpeechRecognition) {
+          this.state._srPlugin = window.Capacitor.Plugins.SpeechRecognition;
+          console.log('[Speech] 从 Capacitor.Plugins 获取 SpeechRecognition');
+        } else if (typeof window.Capacitor.registerPlugin === 'function') {
+          this.state._srPlugin = window.Capacitor.registerPlugin('SpeechRecognition');
+          console.log('[Speech] 通过 registerPlugin 获取 SpeechRecognition');
+        }
       } catch (e) {
-        console.warn('[Speech] 插件注册失败:', e.message || e);
+        console.warn('[Speech] SpeechRecognition 插件获取失败:', e.message || e);
       }
     }
 
     const SR = this.state._srPlugin;
     if (!SR) {
-      console.warn('[Speech] Capacitor 插件未就绪，请确认原生 SpeechRecognition 插件已安装');
-      // 尝试用 Web Speech 回退
+      console.warn('[Speech] Capacitor SpeechRecognition 插件不可用，尝试 Web Speech 回退');
       this._startWebSpeechRecognition();
       return;
     }
