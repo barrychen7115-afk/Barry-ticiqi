@@ -21,6 +21,11 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Bundle SpeechRecognition plugin (esbuild)
+        run: |
+          npx esbuild www/js/sr-entry.js --bundle --outfile=www/js/sr-bundle.js --format=iife --platform=browser
+          echo "SR bundle size: $(wc -c < www/js/sr-bundle.js) bytes"
+
       - name: Add iOS platform
         run: npx cap add ios
 

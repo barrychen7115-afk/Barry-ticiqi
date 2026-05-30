@@ -290,41 +290,38 @@
   </div>
 </div>
 
-<!-- ===== PROMPTER OVERLAY (内置相机 + 悬浮窗) ===== -->
+<!-- ===== PROMPTER OVERLAY ===== -->
 <div id="prompter-overlay">
-  <!-- 相机背景 -->
+  <!-- 相机全屏背景 -->
   <div class="camera-bg">
     <video id="cameraVideo" class="camera-video" autoplay playsinline></video>
   </div>
 
-  <!-- 相机提示（未启动时显示） -->
-  <div class="camera-tip" id="cameraTip">
-    <div class="camera-tip-icon">&#x1F4F7;</div>
-    <div>相机预览中</div>
+  <!-- 顶部半透明控制条 -->
+  <div class="top-bar">
+    <button class="tb-btn" onclick="App.toggleTextHide()" id="hideTextBtn" title="隐藏/显示文字">&#x1F441;</button>
+    <div class="tb-mode">
+      <button class="tb-mode-btn active" id="modeAuto" onclick="App.setScrollMode('auto')">匀速滚动</button>
+      <button class="tb-mode-btn" id="modeAI" onclick="App.setScrollMode('ai')">AI跟随</button>
+    </div>
+    <button class="tb-btn" onclick="App.stopPrompter()" title="退出">&#x2715;</button>
   </div>
 
-  <!-- 悬浮提词窗口 -->
-  <div id="prompter-float">
-    <div class="float-drag-handle" id="floatDragHandle">
-      <span class="float-drag-icon">&#x2630;</span>
-      <span class="float-title" id="floatTitle">自动滚屏中</span>
-      <span class="float-drag-icon">&#x2630;</span>
-    </div>
+  <!-- 提词文字 —— 直接浮在相机上，无背景盒 -->
+  <div id="prompter-text-area">
     <div id="prompter-content"></div>
   </div>
 
-  <!-- 底部控制栏 -->
-  <div class="overlay-bar">
-    <button class="ob-btn ob-sm" onclick="App.slowerSpeed()" title="减速">&#x23EA;</button>
-    <button class="ob-btn ob-play" onclick="App.togglePause()" id="pauseBtn">&#x23F8;</button>
-    <button class="ob-btn ob-sm" onclick="App.fasterSpeed()" title="加速">&#x23E9;</button>
-    <div class="ob-divider"></div>
-    <div class="ob-opacity">
-      <span class="ob-opacity-label">透明</span>
-      <input type="range" min="10" max="100" value="85" id="overlayOpacity" oninput="App.updateOverlayOpacity(this.value)">
-    </div>
-    <div class="ob-divider"></div>
-    <button class="ob-btn ob-sm ob-exit" onclick="App.stopPrompter()">&#x2715;</button>
+  <!-- 底部控制条 -->
+  <div class="bottom-bar">
+    <button class="bb-btn bb-sm" onclick="App.slowerSpeed()">&#x23EA;</button>
+    <button class="bb-btn bb-play" onclick="App.togglePause()" id="pauseBtn">&#x23F8;</button>
+    <button class="bb-btn bb-sm" onclick="App.fasterSpeed()">&#x23E9;</button>
+    <div class="bb-spacer"></div>
+    <span class="bb-label">透明</span>
+    <input type="range" min="20" max="100" value="90" class="bb-slider" id="overlayOpacity" oninput="App.updateOverlayOpacity(this.value)">
+    <div class="bb-spacer"></div>
+    <button class="bb-btn bb-sm" onclick="App.resetTextPosition()">&#x21A9;</button>
   </div>
 </div>
 

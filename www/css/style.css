@@ -312,7 +312,8 @@ input[type=range]::-webkit-slider-thumb {
 }
 .btn-half:active { transform: scale(0.97); }
 
-/* ===== PROMPTER OVERLAY (全新设计) ===== */
+/* ===== PROMPTER OVERLAY v2.2 ===== */
+/* ─── 设计原则：文字直接浮在镜头画面上，不遮挡 ─── */
 #prompter-overlay {
   display: none;
   position: fixed;
@@ -320,12 +321,10 @@ input[type=range]::-webkit-slider-thumb {
   z-index: 1000;
 }
 
-/* Camera background */
 .camera-bg {
   position: absolute;
   inset: 0;
   background: #000;
-  overflow: hidden;
 }
 .camera-video {
   position: absolute;
@@ -335,157 +334,164 @@ input[type=range]::-webkit-slider-thumb {
   object-fit: cover;
 }
 
-/* Camera tip (shown when preview is active) */
-.camera-tip {
+/* ─── 顶部控制条（半透明） ─── */
+.top-bar {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  color: rgba(255,255,255,0.25);
-  pointer-events: none;
-  transition: opacity 0.5s;
-}
-.camera-tip-icon { font-size: 40px; margin-bottom: 8px; }
-.camera-tip.hidden { opacity: 0; }
-
-/* ===== FLOATING PROMPTER WINDOW ===== */
-#prompter-float {
-  position: absolute;
+  top: calc(8px + var(--safe-top));
   left: 12px;
   right: 12px;
-  top: 80px;
-  max-height: 55vh;
-  border-radius: 14px;
-  overflow: hidden;
-  background: rgba(10,10,20,0.85);
-  box-shadow: 0 8px 40px rgba(0,0,0,0.7);
-  display: flex;
-  flex-direction: column;
-  transition: background 0.3s;
-}
-
-.float-drag-handle {
-  flex-shrink: 0;
-  height: 36px;
-  background: rgba(0,0,0,0.5);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
-  cursor: move;
-  touch-action: none;
+  gap: 8px;
 }
-.float-drag-icon { color: rgba(255,255,255,0.35); font-size: 13px; }
-.float-title {
-  font-size: 12px;
+.tb-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: white;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.tb-btn:active { transform: scale(0.9); background: rgba(0,0,0,0.7); }
+.tb-mode {
+  display: flex;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.tb-mode-btn {
+  border: none;
+  background: transparent;
   color: rgba(255,255,255,0.6);
-  font-weight: 500;
+  font-size: 13px;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: 0.15s;
+  white-space: nowrap;
+}
+.tb-mode-btn.active {
+  background: #007AFF;
+  color: white;
 }
 
-/* Prompter text content */
+/* ─── 提词文字区（直接浮在镜头上，无背景盒！） ─── */
+#prompter-text-area {
+  position: absolute;
+  top: 100px;
+  left: 24px;
+  right: 24px;
+  bottom: 100px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
 #prompter-content {
-  flex: 1;
+  width: 100%;
+  max-height: 100%;
   overflow-y: auto;
-  padding: 16px 18px;
-  font-size: 24px;
-  line-height: 1.9;
-  color: #fff;
-  -webkit-overflow-scrolling: touch;
-  -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 98%);
-  mask-image: linear-gradient(to bottom, black 80%, transparent 98%);
+  padding: 16px 20px;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 2.2;
+  color: #FFD60A;
+  text-align: center;
+  text-shadow:
+    0 1px 4px rgba(0,0,0,0.8),
+    0 2px 8px rgba(0,0,0,0.6),
+    0 0 20px rgba(0,0,0,0.5);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 2%, black 10%, black 90%, transparent 98%);
+  mask-image: linear-gradient(to bottom, transparent 2%, black 10%, black 90%, transparent 98%);
 }
 #prompter-content::-webkit-scrollbar { display: none; }
+#prompter-content.hidden-text {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
 
-/* Word highlighting */
+/* ─── 词高亮 ─── */
 .word {
   display: inline;
   padding: 2px 3px;
-  border-radius: 4px;
-  transition: all 0.15s;
-  cursor: default;
-}
-.word.read { opacity: 0.3; }
-.word.current {
-  color: #FFD60A !important;
-  background: rgba(255, 214, 10, 0.25);
-  padding: 3px 5px;
   border-radius: 5px;
-  font-weight: 700;
-  text-shadow: 0 0 8px rgba(255,214,10,0.6);
+  transition: all 0.15s;
 }
-.word.upcoming { opacity: 0.9; }
+.word.read { opacity: 0.2; }
+.word.current {
+  color: #FFFFFF !important;
+  background: rgba(255, 69, 58, 0.7);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 800;
+  text-shadow: none;
+  box-shadow: 0 0 16px rgba(255,69,58,0.6);
+}
+.word.upcoming { opacity: 0.85; }
 
-/* ===== BOTTOM CONTROL BAR ===== */
-.overlay-bar {
+/* ─── 底部控制条 ─── */
+.bottom-bar {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(0,0,0,0.85);
+  bottom: calc(12px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0,0,0,0.55);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  padding: 10px 12px calc(10px + var(--safe-bottom));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+  border-radius: 28px;
+  padding: 6px 16px;
 }
-.ob-btn {
+.bb-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
   border: none;
   cursor: pointer;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.1s;
   color: white;
+  transition: 0.15s;
 }
-.ob-btn:active { transform: scale(0.9); }
-.ob-sm {
-  width: 36px; height: 36px;
+.bb-btn:active { transform: scale(0.9); }
+.bb-sm { background: rgba(255,255,255,0.12); font-size: 14px; }
+.bb-play {
+  width: 44px; height: 44px;
+  background: rgba(255,255,255,0.9);
+  color: #000;
+  font-size: 18px;
+}
+.bb-spacer {
+  width: 1px; height: 22px;
   background: rgba(255,255,255,0.12);
-  font-size: 14px;
 }
-.ob-play {
-  width: 52px; height: 52px;
-  background: #007AFF;
-  font-size: 20px;
-  box-shadow: 0 4px 16px rgba(0,122,255,0.4);
-}
-.ob-exit {
-  width: 36px; height: 36px;
-  background: rgba(255,69,58,0.6);
-  font-size: 14px;
-}
-.ob-divider {
-  width: 1px;
-  height: 24px;
-  background: rgba(255,255,255,0.15);
-  margin: 0 4px;
-}
-.ob-opacity {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px;
-}
-.ob-opacity-label {
+.bb-label {
   font-size: 10px;
   color: rgba(255,255,255,0.5);
   white-space: nowrap;
 }
-.ob-opacity input[type=range] {
-  width: 60px;
+.bb-slider {
+  width: 50px;
   height: 3px;
   -webkit-appearance: none;
   background: rgba(255,255,255,0.2);
   border-radius: 2px;
   outline: none;
 }
-.ob-opacity input[type=range]::-webkit-slider-thumb {
+.bb-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px; height: 16px;
+  width: 18px; height: 18px;
   background: white;
   border-radius: 50%;
   cursor: pointer;
