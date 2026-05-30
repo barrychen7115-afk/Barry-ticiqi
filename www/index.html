@@ -18,7 +18,7 @@
   <div class="app-title">智能提词器 Pro</div>
   <div class="app-sub">Teleprompter &middot; iPhone 13 专属</div>
   <div class="badge-row">
-    <span class="badge">&#x1F916; AI 智能跟读</span>
+    <span class="badge">&#x1F4F7; 内置相机</span>
     <span class="badge">&#x1F3A8; 自定义样式</span>
     <span class="badge">&#x1FA9F; 悬浮窗模式</span>
     <span class="badge">&#x1F4F1; 离线运行</span>
@@ -290,47 +290,41 @@
   </div>
 </div>
 
-<!-- ===== PROMPTER OVERLAY ===== -->
+<!-- ===== PROMPTER OVERLAY (内置相机 + 悬浮窗) ===== -->
 <div id="prompter-overlay">
+  <!-- 相机背景 -->
   <div class="camera-bg">
-    <video id="cameraVideo" class="camera-video" autoplay playsinline muted></video>
-    <div class="camera-grid"></div>
-    <div class="camera-label">&#x1F4F7; 相机预览中</div>
+    <video id="cameraVideo" class="camera-video" autoplay playsinline></video>
   </div>
 
-  <!-- AI Status Bar -->
-  <div class="ai-status-bar">
-    <div class="ai-waveform">
-      <div class="wave-bar"></div><div class="wave-bar"></div>
-      <div class="wave-bar"></div><div class="wave-bar"></div>
-      <div class="wave-bar"></div>
-    </div>
-    <div class="ai-status-text" id="aiStatusText">等待语音输入...</div>
-    <div class="ai-confidence" id="aiConfidence">--</div>
+  <!-- 相机提示（未启动时显示） -->
+  <div class="camera-tip" id="cameraTip">
+    <div class="camera-tip-icon">&#x1F4F7;</div>
+    <div>相机预览中</div>
   </div>
 
-  <!-- Floating Prompter Window -->
+  <!-- 悬浮提词窗口 -->
   <div id="prompter-float">
-    <div class="prompter-titlebar">
-      <div class="prompter-titlebar-dots">
-        <div class="titlebar-dot dot-red"></div>
-        <div class="titlebar-dot dot-yellow"></div>
-        <div class="titlebar-dot dot-green"></div>
-      </div>
-      <div class="prompter-status">
-        <div class="status-dot listening" id="statusDot"></div>
-        <span id="statusText">AI 跟读中</span>
-      </div>
+    <div class="float-drag-handle" id="floatDragHandle">
+      <span class="float-drag-icon">&#x2630;</span>
+      <span class="float-title" id="floatTitle">自动滚屏中</span>
+      <span class="float-drag-icon">&#x2630;</span>
     </div>
     <div id="prompter-content"></div>
-    <div class="resize-handle"></div>
   </div>
 
-  <!-- Overlay Bottom Controls -->
-  <div class="overlay-controls">
-    <button class="ov-btn ov-btn-secondary" onclick="App.resetPosition()" title="重置位置">&#x21A9;&#xFE0F;</button>
-    <button class="ov-btn ov-btn-main" onclick="App.togglePause()" id="pauseBtn">&#x23F8;</button>
-    <button class="ov-btn ov-btn-danger" onclick="App.stopPrompter()">&#x2715;</button>
+  <!-- 底部控制栏 -->
+  <div class="overlay-bar">
+    <button class="ob-btn ob-sm" onclick="App.slowerSpeed()" title="减速">&#x23EA;</button>
+    <button class="ob-btn ob-play" onclick="App.togglePause()" id="pauseBtn">&#x23F8;</button>
+    <button class="ob-btn ob-sm" onclick="App.fasterSpeed()" title="加速">&#x23E9;</button>
+    <div class="ob-divider"></div>
+    <div class="ob-opacity">
+      <span class="ob-opacity-label">透明</span>
+      <input type="range" min="10" max="100" value="85" id="overlayOpacity" oninput="App.updateOverlayOpacity(this.value)">
+    </div>
+    <div class="ob-divider"></div>
+    <button class="ob-btn ob-sm ob-exit" onclick="App.stopPrompter()">&#x2715;</button>
   </div>
 </div>
 

@@ -24,6 +24,11 @@ jobs:
       - name: Add iOS platform
         run: npx cap add ios
 
+      - name: Add camera permission to Info.plist
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器需要使用相机来显示拍摄画面，提词文字将悬浮在相机上方'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器可能需要麦克风权限用于语音跟随功能'" ios/App/App/Info.plist
+
       - name: Sync web assets to iOS
         run: npx cap sync ios
 

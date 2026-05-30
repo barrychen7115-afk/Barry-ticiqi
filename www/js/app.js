@@ -1,9 +1,9 @@
 /**
- * 智能提词器 Pro — 应用逻辑
- * Capacitor Edition · 适配 iOS WKWebView
+ * 智能提词器 Pro — v2.0
+ * 内置相机 + 悬浮窗 + 自动滚屏
+ * Capacitor · iPhone 13
  */
 
-// ===== GLOBAL STATE =====
 const App = {
   state: {
     fontSize: 24,
@@ -11,85 +11,28 @@ const App = {
     opacity: 85,
     bgStyle: 'blur',
     lineHeight: 1.9,
-    speed: 1,
-    aiEnabled: true,
+    speed: 1,              // 滚屏速度（基准间隔 ms / speed）
     sensitivity: 7,
-    algoMode: 'fuzzy',
     isPaused: false,
+    isRunning: false,
     currentWordIndex: 0,
     words: [],
-    scrollInterval: null,
-    aiInterval: null,
-    speechRecognition: null,
-    isListening: false,
+    scrollTimer: null,
     cameraStream: null,
+    hasCamera: false,
   },
 
-  // ─── Lifecycle ───
+  /* ─── 初始化 ─── */
   init() {
     this._bindEvents();
-    this._initCapacitor();
-    console.log('[提词器] 初始化完成');
-  },
-
-  _initCapacitor() {
-    // Capacitor 就绪后更新安全区域
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
-      window.Capacitor.Plugins.App.addListener('backButton', () => {
-        if (document.getElementById('prompter-overlay').style.display === 'block') {
-          this.stopPrompter();
-        }
-      });
-    }
-    // Update safe-area on resize
-    window.addEventListener('resize', () => {
-      document.documentElement.style.setProperty(
-        '--safe-top', 'env(safe-area-inset-top, 0px)'
-      );
-      document.documentElement.style.setProperty(
-        '--safe-bottom', 'env(safe-area-inset-bottom, 0px)'
-      );
-    });
+    console.log('[提词器 v2.0] 初始化完成 · 自动滚屏模式');
   },
 
   _bindEvents() {
-    // Prevent iOS rubber-band effect in overlay
     document.addEventListener('gesturestart', e => e.preventDefault());
   },
 
-  // ─── Camera ───
-  async requestCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',         // 前置摄像头
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
-          frameRate: { ideal: 30 },
-        },
-        audio: false,
-      });
-      this.state.cameraStream = stream;
-      const video = document.getElementById('cameraVideo');
-      if (video) {
-        video.srcObject = stream;
-        video.play();
-      }
-      return true;
-    } catch (err) {
-      console.warn('[提词器] 相机不可用，使用模拟背景', err);
-      return false;
-    }
-  },
-
-  releaseCamera() {
-    if (this.state.cameraStream) {
-      this.state.cameraStream.getTracks().forEach(t => t.stop());
-      this.state.cameraStream = null;
-    }
-  },
-
-  // ─── Page Navigation ───
+  /* ═══════ 页面导航 ═══════ */
   switchPage(name) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -100,7 +43,7 @@ const App = {
     if (items[navMap[name]]) items[navMap[name]].classList.add('active');
   },
 
-  // ─── Speed ───
+  /* ═══════ 设置 ═══════ */
   setSpeed(val, el) {
     this.state.speed = val;
     const btns = document.querySelectorAll('#page-home .speed-btns .speed-btn');
@@ -108,7 +51,6 @@ const App = {
     if (el) el.classList.add('active');
   },
 
-  // ─── Color ───
   setColor(hex, el) {
     this.state.fontColor = hex;
     document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
@@ -118,27 +60,25 @@ const App = {
     this._applyStyle();
   },
 
-  // ─── Font Size ───
   updateFontSize(val) {
     this.state.fontSize = parseInt(val);
-    const display = document.getElementById('fontSizeVal');
-    if (display) display.textContent = val + 'px';
-    const preview = document.getElementById('fontPreview');
-    if (preview) preview.style.fontSize = val + 'px';
+    const d = document.getElementById('fontSizeVal');
+    if (d) d.textContent = val + 'px';
+    const p = document.getElementById('fontPreview');
+    if (p) p.style.fontSize = val + 'px';
     this._applyStyle();
   },
 
-  // ─── Opacity ───
   updateOpacity(val) {
     this.state.opacity = parseInt(val);
     const v1 = document.getElementById('opacityVal');
     const v2 = document.getElementById('opacityVal2');
     if (v1) v1.textContent = val + '%';
     if (v2) v2.textContent = val + '%';
+    document.getElementById('overlayOpacity').value = val;
     this._applyStyle();
   },
 
-  // ─── Background Style ───
   setBgStyle(style, el) {
     this.state.bgStyle = style;
     const btns = document.querySelectorAll('#page-style .card:nth-child(4) .speed-btn');
@@ -147,7 +87,6 @@ const App = {
     this._applyStyle();
   },
 
-  // ─── Line Height ───
   setLineHeight(val, el) {
     this.state.lineHeight = val;
     const btns = document.querySelectorAll('#page-style .card:nth-child(5) .speed-btn');
@@ -156,32 +95,7 @@ const App = {
     this._applyStyle();
   },
 
-  // ─── Sensitivity ───
-  updateSensitivity(val) {
-    this.state.sensitivity = parseInt(val);
-    const d = document.getElementById('sensitivityVal');
-    if (d) d.textContent = val;
-  },
-
-  // ─── Algo Mode ───
-  setAlgoMode(mode, el) {
-    this.state.algoMode = mode;
-    const btns = document.querySelectorAll('#page-ai .speed-btn');
-    btns.forEach(b => b.classList.remove('active'));
-    if (el) el.classList.add('active');
-  },
-
-  // ─── AI Toggle ───
-  toggleAI(enabled) {
-    this.state.aiEnabled = enabled;
-    const label = document.getElementById('aiLabel');
-    if (label) {
-      label.textContent = enabled ? '已开启' : '已关闭';
-      label.style.color = enabled ? 'var(--accent)' : 'var(--text-muted)';
-    }
-  },
-
-  // ─── Apply Style (to floating window) ───
+  /* ═══════ 应用到悬浮窗 ═══════ */
   _applyStyle() {
     const content = document.getElementById('prompter-content');
     const floatEl = document.getElementById('prompter-float');
@@ -193,7 +107,7 @@ const App = {
 
     const alpha = this.state.opacity / 100;
     const bgMap = {
-      'blur':       `rgba(10,10,15,${alpha})`,
+      'blur':       `rgba(10,10,20,${alpha})`,
       'dark':       `rgba(0,0,0,${alpha})`,
       'dark-blue':  `rgba(5,15,35,${alpha})`,
       'gradient':   `rgba(10,10,20,${alpha})`,
@@ -201,16 +115,50 @@ const App = {
     };
     floatEl.style.background = bgMap[this.state.bgStyle] || bgMap['blur'];
 
-    if (this.state.bgStyle === 'blur' || this.state.bgStyle === 'dark-blue' || this.state.bgStyle === 'gradient') {
-      floatEl.style.backdropFilter = 'blur(20px)';
-      floatEl.style.webkitBackdropFilter = 'blur(20px)';
-    } else {
+    if (this.state.bgStyle === 'none') {
+      floatEl.style.boxShadow = 'none';
       floatEl.style.backdropFilter = 'none';
       floatEl.style.webkitBackdropFilter = 'none';
+    } else {
+      floatEl.style.boxShadow = '0 8px 40px rgba(0,0,0,0.7)';
+      floatEl.style.backdropFilter = 'blur(12px)';
+      floatEl.style.webkitBackdropFilter = 'blur(12px)';
     }
   },
 
-  // ─── Parser ───
+  /* ═══════ 镜头 ═══════ */
+  async requestCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 30 } },
+        audio: false,
+      });
+      this.state.cameraStream = stream;
+      const video = document.getElementById('cameraVideo');
+      if (video) {
+        video.srcObject = stream;
+        await video.play();
+      }
+      const tip = document.getElementById('cameraTip');
+      if (tip) setTimeout(() => tip.classList.add('hidden'), 2000);
+      this.state.hasCamera = true;
+      return true;
+    } catch (err) {
+      console.warn('[提词器] 相机不可用：', err.message);
+      this.state.hasCamera = false;
+      return false;
+    }
+  },
+
+  releaseCamera() {
+    if (this.state.cameraStream) {
+      this.state.cameraStream.getTracks().forEach(t => t.stop());
+      this.state.cameraStream = null;
+    }
+    this.state.hasCamera = false;
+  },
+
+  /* ═══════ 解析台词 ═══════ */
   _parseWords(text) {
     return text.match(/[\u4e00-\u9fa5]+|[a-zA-Z]+|[^\s]/g) || [];
   },
@@ -230,15 +178,18 @@ const App = {
     });
   },
 
-  // ─── Start Prompter ───
+  /* ═══════ 开始提词 ═══════ */
   async startPrompter() {
     const text = document.getElementById('scriptInput').value.trim();
-    if (!text) { this._toast('请先输入台词文本！'); return; }
+    if (!text) { alert('请先输入台词文本！'); return; }
 
+    // 重置状态
     this.state.words = this._parseWords(text);
     this.state.currentWordIndex = 0;
     this.state.isPaused = false;
+    this.state.isRunning = true;
 
+    // 显示 overlay
     const overlay = document.getElementById('prompter-overlay');
     overlay.style.display = 'block';
 
@@ -246,241 +197,160 @@ const App = {
     this._applyStyle();
     this._setupDrag();
 
-    document.getElementById('pauseBtn').textContent = '⏸';
+    document.getElementById('pauseBtn').innerHTML = '&#x23F8;';
+    document.getElementById('floatTitle').textContent = '自动滚屏中';
+    document.getElementById('overlayOpacity').value = this.state.opacity;
 
-    // Try to get camera
+    // 启动相机
     await this.requestCamera();
 
-    if (this.state.aiEnabled) {
-      this._startAITracking();
-    } else {
-      this._startAutoScroll();
-    }
+    // 启动自动滚屏
+    this._startAutoScroll();
   },
 
+  /* 停止提词 */
   stopPrompter() {
+    this.state.isRunning = false;
     document.getElementById('prompter-overlay').style.display = 'none';
-    clearInterval(this.state.scrollInterval);
-    this._stopAITracking();
+    this._stopAutoScroll();
     this.releaseCamera();
   },
 
+  /* 暂停/继续 */
   togglePause() {
     this.state.isPaused = !this.state.isPaused;
-    document.getElementById('pauseBtn').textContent = this.state.isPaused ? '▶' : '⏸';
-    if (this.state.isPaused) {
-      clearInterval(this.state.scrollInterval);
-      this._stopWaveform();
-    } else {
-      if (this.state.aiEnabled) this._startAITracking();
-      else this._startAutoScroll();
+    document.getElementById('pauseBtn').innerHTML = this.state.isPaused ? '&#x25B6;' : '&#x23F8;';
+    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : '自动滚屏中';
+  },
+
+  /* ═══════ 自动滚屏 ═══════ */
+  _startAutoScroll() {
+    this._stopAutoScroll();
+    const baseInterval = 420; // 基准毫秒
+    const loop = () => {
+      if (!this.state.isRunning) return;
+      if (!this.state.isPaused) this._advanceWord();
+      this.state.scrollTimer = setTimeout(loop, baseInterval / this.state.speed);
+    };
+    this.state.scrollTimer = setTimeout(loop, baseInterval / this.state.speed);
+  },
+
+  _stopAutoScroll() {
+    if (this.state.scrollTimer) {
+      clearTimeout(this.state.scrollTimer);
+      this.state.scrollTimer = null;
     }
   },
 
-  // ─── Auto Scroll (fallback) ───
-  _startAutoScroll() {
-    clearInterval(this.state.scrollInterval);
-    this.state.scrollInterval = setInterval(() => {
-      if (!this.state.isPaused) this._advanceWord();
-    }, 400 / this.state.speed);
-  },
-
-  // ─── Word Advance ───
   _advanceWord() {
     const total = this.state.words.length;
-    if (this.state.currentWordIndex >= total) return;
+    if (this.state.currentWordIndex >= total) {
+      // 循环到开头
+      this.state.currentWordIndex = 0;
+      this.state.words.forEach((_, i) => {
+        const el = document.getElementById('w' + i);
+        if (el) { el.className = 'word upcoming'; el.style.color = ''; el.style.background = ''; }
+      });
+    }
 
+    // 清除前一个高亮
     const prev = document.getElementById('w' + (this.state.currentWordIndex - 1));
-    if (prev) { prev.className = 'word read'; }
+    if (prev) { prev.className = 'word read'; prev.style.color = ''; prev.style.background = ''; }
 
+    // 高亮当前词
     const cur = document.getElementById('w' + this.state.currentWordIndex);
     if (cur) {
       cur.className = 'word current';
       cur.style.color = '#FFD60A';
-      cur.style.background = 'rgba(255,214,10,0.2)';
+      cur.style.background = 'rgba(255,214,10,0.25)';
       cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     this.state.currentWordIndex++;
   },
 
-  _setWordIndex(idx) {
-    this.state.words.forEach((_, i) => {
-      const el = document.getElementById('w' + i);
-      if (!el) return;
-      if (i < idx) {
-        el.className = 'word read'; el.style.color = ''; el.style.background = '';
-      } else if (i === idx) {
-        el.className = 'word current';
-        el.style.color = '#FFD60A';
-        el.style.background = 'rgba(255,214,10,0.2)';
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } else {
-        el.className = 'word upcoming'; el.style.color = ''; el.style.background = '';
-      }
-    });
-    this.state.currentWordIndex = idx + 1;
+  /* ═══════ 速度微调 ═══════ */
+  fasterSpeed() {
+    this.state.speed = Math.min(4, this.state.speed + 0.3);
+    this._updateSpeedBadge();
   },
 
-  // ─── AI Tracking ───
-  _startAITracking() {
-    this._startWaveform();
-    document.getElementById('aiStatusText').textContent = '正在监听...';
-    document.getElementById('statusText').textContent = 'AI 跟读中';
-
-    // iOS WKWebView supports Web Speech API
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SR) {
-      const rec = new SR();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.lang = 'zh-CN';
-
-      rec.onresult = (ev) => {
-        let t = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          t += ev.results[i][0].transcript;
-        }
-        if (t) {
-          const conf = Math.round(ev.results[ev.results.length - 1][0].confidence * 100) || 85;
-          document.getElementById('aiConfidence').textContent = conf + '%';
-          document.getElementById('aiStatusText').textContent = t.slice(-12);
-          this._matchAndAdvance(t);
-        }
-      };
-
-      rec.onerror = (e) => {
-        console.log('[提词器] 语音识别错误:', e.error);
-        if (e.error === 'no-speech' || e.error === 'aborted') {
-          // Normal, just restart after short delay
-          setTimeout(() => {
-            if (this.state.isListening) this._startAITracking();
-          }, 600);
-        }
-      };
-
-      rec.onend = () => {
-        // Auto-restart (iOS Speech API has time limits)
-        if (this.state.isListening && !this.state.isPaused) {
-          setTimeout(() => this._startAITracking(), 300);
-        }
-      };
-
-      try {
-        rec.start();
-        this.state.speechRecognition = rec;
-        this.state.isListening = true;
-      } catch (e) {
-        console.warn('[提词器] 语音识别启动失败，使用模拟模式', e);
-        this._simulateAI();
-      }
-    } else {
-      // Fallback: simulate
-      this._simulateAI();
-    }
+  slowerSpeed() {
+    this.state.speed = Math.max(0.3, this.state.speed - 0.3);
+    this._updateSpeedBadge();
   },
 
-  _stopAITracking() {
-    this.state.isListening = false;
-    if (this.state.speechRecognition) {
-      try { this.state.speechRecognition.stop(); } catch(e) {}
-      this.state.speechRecognition = null;
-    }
-    clearInterval(this.state.aiInterval);
-    this._stopWaveform();
+  _updateSpeedBadge() {
+    const speeds = ['极慢', '慢', '适中', '快', '极快'];
+    const idx = Math.round((this.state.speed - 0.3) / 0.925);
+    const label = speeds[Math.min(4, Math.max(0, idx))] || '适中';
+    document.getElementById('floatTitle').textContent = this.state.isPaused ? '已暂停' : '滚屏 · ' + label;
   },
 
-  _simulateAI() {
-    clearInterval(this.state.aiInterval);
-    this.state.aiInterval = setInterval(() => {
-      if (this.state.isPaused) return;
-      const skip = Math.random() > 0.85 ? 2 : 1;
-      for (let s = 0; s < skip; s++) this._advanceWord();
-      const conf = 82 + Math.floor(Math.random() * 15);
-      document.getElementById('aiConfidence').textContent = conf + '%';
-    }, 500 / this.state.speed);
-    this.state.isListening = true;
+  /* ═══════ overlay 透明度 ═══════ */
+  updateOverlayOpacity(val) {
+    this.state.opacity = parseInt(val);
+    // 同步主页和样式页的滑块
+    const v1 = document.getElementById('opacityVal');
+    const v2 = document.getElementById('opacityVal2');
+    if (v1) v1.textContent = val + '%';
+    if (v2) v2.textContent = val + '%';
+    // 同步滑块值
+    const s1 = document.getElementById('opacitySlider');
+    const s2 = document.getElementById('opacitySlider2');
+    if (s1) s1.value = val;
+    if (s2) s2.value = val;
+    this._applyStyle();
   },
 
-  _matchAndAdvance(transcript) {
-    const clean = transcript.replace(/\s+/g, '').replace(/[，。！？、；：]/g, '');
-    const words = this.state.words;
-    const start = Math.max(0, this.state.currentWordIndex - 2);
-    const end = Math.min(words.length, this.state.currentWordIndex + 15);
-    let bestIdx = -1, bestScore = 0;
-
-    for (let i = start; i < end; i++) {
-      const phrase = words.slice(i, Math.min(i + 5, words.length)).join('');
-      const score = this._fuzzyScore(clean, phrase);
-      if (score > bestScore) { bestScore = score; bestIdx = i; }
-    }
-
-    const threshold = 0.8 - (this.state.sensitivity / 10) * 0.4;
-    if (bestIdx >= 0 && bestScore > threshold) {
-      this._setWordIndex(bestIdx);
-    }
-  },
-
-  _fuzzyScore(a, b) {
-    if (!a || !b) return 0;
-    // Simple edit-distance-like matching
-    let matches = 0, si = 0;
-    for (let li = 0; li < a.length && si < b.length; li++) {
-      if (a[li] === b[si]) { matches++; si++; }
-    }
-    return matches / Math.max(a.length, b.length, 1);
-  },
-
-  // ─── Waveform Animation ───
-  _startWaveform() {
-    document.querySelectorAll('.wave-bar').forEach(b => b.classList.add('waving'));
-  },
-  _stopWaveform() {
-    document.querySelectorAll('.wave-bar').forEach(b => b.classList.remove('waving'));
-  },
-
-  // ─── Drag (Touch) ───
+  /* ═══════ 拖动悬浮窗 ═══════ */
   _setupDrag() {
     const el = document.getElementById('prompter-float');
-    const bar = el.querySelector('.prompter-titlebar');
-    let sx, sy, sl, st;
+    const handle = document.getElementById('floatDragHandle');
+    if (el._dragReady) return;
+    el._dragReady = true;
 
-    const onStart = (x, y) => {
+    let sx, sy, sl, st, dragging = false;
+
+    const onDown = (x, y) => {
       const r = el.getBoundingClientRect();
       sx = x; sy = y; sl = r.left; st = r.top;
+      dragging = true;
+      el.style.transition = 'none';
     };
     const onMove = (x, y) => {
-      el.style.left = Math.max(0, sl + (x - sx)) + 'px';
-      el.style.top = Math.max(36, st + (y - sy)) + 'px';
+      if (!dragging) return;
+      const newLeft = Math.max(-60, Math.min(window.innerWidth - 60, sl + (x - sx)));
+      const newTop = Math.max(30, Math.min(window.innerHeight - 120, st + (y - sy)));
+      el.style.left = newLeft + 'px';
+      el.style.top = newTop + 'px';
       el.style.right = 'auto';
     };
+    const onUp = () => {
+      dragging = false;
+      el.style.transition = '';
+    };
 
-    bar.addEventListener('touchstart', e => {
-      const t = e.touches[0]; onStart(t.clientX, t.clientY);
-      const mm = e2 => { const t2 = e2.touches[0]; onMove(t2.clientX, t2.clientY); };
-      document.addEventListener('touchmove', mm, { passive: false });
-      document.addEventListener('touchend', () => document.removeEventListener('touchmove', mm), { once: true });
-    });
+    handle.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const t = e.touches[0]; onDown(t.clientX, t.clientY);
+    }, { passive: false });
 
-    // Also support mouse for desktop testing
-    bar.addEventListener('mousedown', e => {
-      onStart(e.clientX, e.clientY);
-      const mm = e2 => onMove(e2.clientX, e2.clientY);
-      document.addEventListener('mousemove', mm);
-      document.addEventListener('mouseup', () => document.removeEventListener('mousemove', mm), { once: true });
-    });
+    document.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      const t = e.touches[0]; onMove(t.clientX, t.clientY);
+    }, { passive: false });
+
+    document.addEventListener('touchend', onUp);
+    document.addEventListener('touchcancel', onUp);
+
+    // PC 鼠标支持
+    handle.addEventListener('mousedown', e => { onDown(e.clientX, e.clientY); });
+    document.addEventListener('mousemove', e => { onMove(e.clientX, e.clientY); });
+    document.addEventListener('mouseup', onUp);
   },
 
-  resetPosition() {
-    const el = document.getElementById('prompter-float');
-    el.style.left = '12px';
-    el.style.right = '12px';
-    el.style.top = '100px';
-  },
-
-  // ─── Utilities ───
-  clearScript() {
-    document.getElementById('scriptInput').value = '';
-  },
+  /* ═══════ 工具 ═══════ */
+  clearScript() { document.getElementById('scriptInput').value = ''; },
 
   loadSample() {
     document.getElementById('scriptInput').value = `大家好，我是今天的主播，欢迎收看本期节目。
@@ -494,16 +364,7 @@ const App = {
 感谢大家的收看，记得点赞关注，我们下期再见！`;
   },
 
-  _toast(msg) {
-    // Simple toast for Capacitor environment
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Toast) {
-      window.Capacitor.Plugins.Toast.show({ text: msg, duration: 'short' });
-    } else {
-      alert(msg);
-    }
-  },
-
-  // ─── AI Demo ───
+  /* ═══════ 演示 ═══════ */
   _demoTimer: null,
   _demoIdx: 0,
 
@@ -531,10 +392,19 @@ const App = {
       }
     }, 600);
   },
+
+  // 旧 API 兼容
+  toggleAI(enabled) {},
+  updateSensitivity(val) {},
+  setAlgoMode(mode, el) {},
+  resetPosition() {
+    const el = document.getElementById('prompter-float');
+    el.style.left = '12px';
+    el.style.right = '12px';
+    el.style.top = '80px';
+  },
 };
 
-// Initialize on DOM ready
+/* 启动 */
 document.addEventListener('DOMContentLoaded', () => App.init());
-
-// Expose for onclick handlers
 window.App = App;
