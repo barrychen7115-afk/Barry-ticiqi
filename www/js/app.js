@@ -31,6 +31,11 @@ const App = {
     recognitionRestartTimer: null,
     sensitivity: 7,              // 跟读灵敏度 1-10
     algoMode: 'fuzzy',           // 'fuzzy' | 'strict' | 'semantic'
+    // 录制
+    isRecording: false,
+    recordingTimer: null,
+    recordingStartTime: 0,
+    recordingSeconds: 0,
   },
 
   /* ─── 初始化 ─── */
@@ -43,13 +48,19 @@ const App = {
 
   /** 检测可用的语音识别引擎 */
   _detectSpeechCapability() {
-    // 方式1: Capacitor 原生 SpeechRecognition 插件 (iOS SFSpeechRecognizer)
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+    // 方式1: esbuild bundle 暴露的 SpeechRecognition (Capacitor SFSpeechRecognizer)
+    if (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition) {
       this.state.recognitionType = 'capacitor';
-      console.log('[Speech] 检测到原生识别引擎 (SFSpeechRecognizer)');
+      console.log('[Speech] 检测到原生识别引擎 (esbuild bundle)');
       return;
     }
-    // 方式2: Web Speech API (浏览器/Safari 测试用)
+    // 方式2: Capacitor 直接暴露的插件
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+      this.state.recognitionType = 'capacitor';
+      console.log('[Speech] 检测到原生识别引擎 (Capacitor.Plugins)');
+      return;
+    }
+    // 方式3: Web Speech API (浏览器/Safari 测试用)
     const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (WS) {
       this.state.recognitionType = 'webspeech';
@@ -207,7 +218,9 @@ const App = {
 
   /** Capacitor 原生语音识别 (iOS SFSpeechRecognizer) */
   async _startCapacitorRecognition() {
-    const SR = window.Capacitor.Plugins.SpeechRecognition;
+    // 优先使用 esbuild bundle
+    let SR = (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition)
+      || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition);
     if (!SR) {
       console.warn('[Speech] Capacitor 插件未就绪');
       return;
@@ -236,7 +249,6 @@ const App = {
         if (!this.state.isRecognitionActive) return;
         if (!this.state.isRunning || this.state.isPaused) return;
         if (this.state.scrollMode !== 'ai') return;
-
         if (data.matches && data.matches.length > 0) {
           const transcript = data.matches[0];
           this.state.lastRecognizedWords = transcript;
@@ -249,7 +261,7 @@ const App = {
         language: 'zh-CN',
         maxResults: 2,
         partialResults: true,
-        popup: false,  // 不显示系统弹窗
+        popup: false,
       });
 
     } catch (e) {
@@ -317,10 +329,10 @@ const App = {
       this.state.recognitionRestartTimer = null;
     }
     // 停止 Capacitor 原生识别
-    if (this.state.recognitionType === 'capacitor' && window.Capacitor?.Plugins?.SpeechRecognition) {
-      try {
-        window.Capacitor.Plugins.SpeechRecognition.stop();
-      } catch (e) { /* 忽略 */ }
+    const sr = (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition)
+      || (window.Capacitor?.Plugins?.SpeechRecognition);
+    if (sr) {
+      try { sr.stop(); } catch (e) { /* 忽略 */ }
     }
     // 停止 Web Speech 实例
     if (this.state.recognition) {
@@ -453,11 +465,56 @@ const App = {
       span.className = 'word upcoming';
       span.id = 'w' + i;
       span.textContent = word;
+      // 点击任意词可跳转
+      span.addEventListener('click', () => this._onWordTap(i));
       content.appendChild(span);
       if (!/^[，。！？、；：""''（）【】]$/.test(word)) {
         content.appendChild(document.createTextNode(' '));
       }
     });
+  },
+
+  /** 点击词跳转 */
+  _onWordTap(idx) {
+    if (!this.state.isRunning) return;
+    // 将该词之前的所有词标为已读
+    for (let i = 0; i <= idx; i++) {
+      const el = document.getElementById('w' + i);
+      if (el) {
+        if (i === idx) {
+          el.className = 'word current';
+          el.style.color = '#FFFFFF';
+          el.style.background = 'rgba(255,69,58,0.7)';
+        } else {
+          el.className = 'word read';
+          el.style.color = '';
+          el.style.background = '';
+        }
+      }
+    }
+    // 后面的词恢复未读
+    for (let i = idx + 1; i < this.state.words.length; i++) {
+      const el = document.getElementById('w' + i);
+      if (el) { el.className = 'word upcoming'; el.style.color = ''; el.style.background = ''; }
+    }
+    this.state.currentWordIndex = idx;
+    // 滚动到视图
+    const cur = document.getElementById('w' + idx);
+    if (cur) cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 显示提示
+    this._showTapHint('已跳转到第 ' + (idx + 1) + ' 词');
+  },
+
+  _showTapHint(text) {
+    let hint = document.getElementById('tap-hint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'tap-hint';
+      document.getElementById('prompter-overlay').appendChild(hint);
+    }
+    hint.textContent = text;
+    hint.classList.add('show');
+    setTimeout(() => hint.classList.remove('show'), 1200);
   },
 
   _highlightCurrent(smooth) {
@@ -513,6 +570,7 @@ const App = {
     document.getElementById('prompter-overlay').style.display = 'none';
     this._stopAutoScroll();
     this._stopVoiceDetection();
+    this._stopRecording();
     this.releaseCamera();
   },
 
@@ -627,38 +685,76 @@ const App = {
     if (el) el.classList.add('active');
   },
 
-  /* ═══════ 相机拍摄 ═══════ */
+  /* ═══════ 相机拍摄 & 录制 ═══════ */
   async capturePhoto() {
-    // 优先使用 Capacitor Camera 插件
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera) {
-      try {
-        const Camera = window.Capacitor.Plugins.Camera;
-        const photo = await Camera.getPhoto({
-          resultType: 'uri',
-          source: 'CAMERA',
-          direction: 'FRONT',
-          quality: 90,
-          saveToGallery: true,
-          width: 1920,
-          height: 1080,
-        });
-        console.log('[Camera] 拍照成功:', photo.path || photo.webPath);
-        // 拍照成功反馈
-        const flash = document.createElement('div');
-        flash.style.cssText = 'position:fixed;inset:0;background:white;z-index:9999;opacity:0.8;pointer-events:none';
-        document.body.appendChild(flash);
-        setTimeout(() => { flash.style.opacity = '0'; flash.style.transition = 'opacity 0.4s'; }, 50);
-        setTimeout(() => { flash.remove(); }, 500);
-        return;
-      } catch (e) {
-        console.warn('[Camera] Capacitor 拍照失败:', e.message || e);
-      }
+    // 切换录制模式（显示计时器）
+    if (!this.state.isRecording) {
+      this._startRecording();
+    } else {
+      this._stopRecording();
+    }
+  },
+
+  _startRecording() {
+    this.state.isRecording = true;
+    this.state.recordingStartTime = Date.now();
+    this.state.recordingSeconds = 0;
+
+    // 显示计时器
+    const timerEl = document.getElementById('recording-timer');
+    if (timerEl) timerEl.style.display = 'flex';
+    this._updateRecordingTimer();
+
+    // 改变按钮样式为「录制中」
+    const btn = document.querySelector('.bb-capture');
+    if (btn) { btn.style.background = '#FF453A'; btn.style.color = 'white'; }
+
+    console.log('[Camera] 录制开始');
+  },
+
+  _stopRecording() {
+    this.state.isRecording = false;
+    if (this.state.recordingTimer) {
+      clearInterval(this.state.recordingTimer);
+      this.state.recordingTimer = null;
     }
 
-    // 回退：从视频流截取帧
+    // 隐藏计时器
+    const timerEl = document.getElementById('recording-timer');
+    if (timerEl) timerEl.style.display = 'none';
+
+    // 恢复按钮样式
+    const btn = document.querySelector('.bb-capture');
+    if (btn) { btn.style.background = 'rgba(255,255,255,0.9)'; btn.style.color = '#000'; }
+
+    // 拍摄一帧作为封面（canvas 截图）
+    this._takeCanvasSnapshot();
+
+    console.log('[Camera] 录制结束，时长:', this._formatTime(this.state.recordingSeconds));
+  },
+
+  _updateRecordingTimer() {
+    if (this.state.recordingTimer) clearInterval(this.state.recordingTimer);
+    this.state.recordingTimer = setInterval(() => {
+      if (!this.state.isRecording) { clearInterval(this.state.recordingTimer); return; }
+      const elapsed = Math.floor((Date.now() - this.state.recordingStartTime) / 1000);
+      this.state.recordingSeconds = elapsed;
+      const timeEl = document.getElementById('rec-time');
+      if (timeEl) timeEl.textContent = this._formatTime(elapsed);
+    }, 1000);
+  },
+
+  _formatTime(seconds) {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return m + ':' + s;
+  },
+
+  /** 从视频流截取一帧（WKWebView 100% 可靠） */
+  _takeCanvasSnapshot() {
     const video = document.getElementById('cameraVideo');
     if (!video || video.readyState < 2) {
-      alert('相机未就绪，无法拍摄');
+      console.warn('[Camera] 视频未就绪');
       return;
     }
 
@@ -667,8 +763,19 @@ const App = {
       canvas.width = video.videoWidth || 1920;
       canvas.height = video.videoHeight || 1080;
       const ctx = canvas.getContext('2d');
+      // 镜像翻转（前置镜头通常需要）
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      // 下载截图
+
+      // 闪屏效果
+      const flash = document.createElement('div');
+      flash.style.cssText = 'position:fixed;inset:0;background:white;z-index:9999;opacity:0.6;pointer-events:none';
+      document.body.appendChild(flash);
+      requestAnimationFrame(() => { flash.style.transition = 'opacity 0.35s'; flash.style.opacity = '0'; });
+      setTimeout(() => flash.remove(), 400);
+
+      // 保存图片
       const link = document.createElement('a');
       link.download = 'teleprompter-' + Date.now() + '.png';
       link.href = canvas.toDataURL('image/png');
@@ -676,7 +783,6 @@ const App = {
       console.log('[Camera] 截图已保存');
     } catch (e) {
       console.warn('[Camera] 截图失败:', e);
-      alert('拍摄失败: ' + (e.message || '未知错误'));
     }
   },
 };

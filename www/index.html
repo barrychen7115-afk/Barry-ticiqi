@@ -297,6 +297,12 @@
     <video id="cameraVideo" class="camera-video" autoplay playsinline></video>
   </div>
 
+  <!-- 录制计时器 -->
+  <div id="recording-timer" style="display:none;">
+    <span id="rec-dot"></span>
+    <span id="rec-time">00:00</span>
+  </div>
+
   <!-- 顶部半透明控制条 -->
   <div class="top-bar">
     <button class="tb-btn" onclick="App.toggleTextHide()" id="hideTextBtn" title="隐藏/显示文字">&#x1F441;</button>
@@ -328,6 +334,7 @@
 </div>
 
 <!-- ===== SCRIPTS ===== -->
+<script src="js/sr-bundle.js"></script>
 <script src="js/app.js"></script>
 
 </body>
