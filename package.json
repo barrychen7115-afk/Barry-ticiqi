@@ -6,11 +6,10 @@
   "license": "MIT",
   "scripts": {
     "start": "npx serve www -l 3000",
-    "build": "npm run bundle-speech && npx cap sync",
+    "build": "npx cap sync",
     "copy": "npx cap copy",
     "open:ios": "npx cap open ios",
-    "update": "npx cap update",
-    "bundle-speech": "npx esbuild www/js/sr-entry.js --bundle --format=iife --global-name=_TeleprompterSpeech --outfile=www/js/sr-bundle.js"
+    "update": "npx cap update"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^6.0.1",

@@ -24,7 +24,8 @@ const App = {
     cameraStream: null,
     hasCamera: false,
     // 语音识别跟读 (Capacitor 原生 SFSpeechRecognizer)
-    recognition: null,           // Capacitor SpeechRecognition 插件引用 或 Web Speech 实例
+    recognition: null,           // Web Speech 实例
+    _srPlugin: null,             // Capacitor 注册的 SpeechRecognition 插件引用
     recognitionType: null,       // 'capacitor' | 'webspeech' | null
     isRecognitionActive: false,
     lastRecognizedWords: '',
@@ -48,19 +49,14 @@ const App = {
 
   /** 检测可用的语音识别引擎 */
   _detectSpeechCapability() {
-    // 方式1: esbuild bundle 暴露的 SpeechRecognition (Capacitor SFSpeechRecognizer)
-    if (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition) {
+    // 方式1: Capacitor 原生环境 — 延迟到实际使用时注册（等 bridge 就绪后 PluginHeaders 才可用）
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
       this.state.recognitionType = 'capacitor';
-      console.log('[Speech] 检测到原生识别引擎 (esbuild bundle)');
+      this.state._srPlugin = null; // 延迟注册
+      console.log('[Speech] Capacitor 原生环境，插件将在 AI 模式启动时注册');
       return;
     }
-    // 方式2: Capacitor 直接暴露的插件
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
-      this.state.recognitionType = 'capacitor';
-      console.log('[Speech] 检测到原生识别引擎 (Capacitor.Plugins)');
-      return;
-    }
-    // 方式3: Web Speech API (浏览器/Safari 测试用)
+    // 方式2: Web Speech API (浏览器/Safari 测试用)
     const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (WS) {
       this.state.recognitionType = 'webspeech';
@@ -218,11 +214,21 @@ const App = {
 
   /** Capacitor 原生语音识别 (iOS SFSpeechRecognizer) */
   async _startCapacitorRecognition() {
-    // 优先使用 esbuild bundle
-    let SR = (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition)
-      || (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition);
+    // 直接通过全局 Capacitor bridge 注册插件（此时 bridge 已就绪，PluginHeaders 可用）
+    if (!this.state._srPlugin && window.Capacitor && window.Capacitor.registerPlugin) {
+      try {
+        this.state._srPlugin = window.Capacitor.registerPlugin('SpeechRecognition');
+        console.log('[Speech] 插件已通过全局 Capacitor bridge 注册');
+      } catch (e) {
+        console.warn('[Speech] 插件注册失败:', e.message || e);
+      }
+    }
+
+    const SR = this.state._srPlugin;
     if (!SR) {
-      console.warn('[Speech] Capacitor 插件未就绪');
+      console.warn('[Speech] Capacitor 插件未就绪，请确认原生 SpeechRecognition 插件已安装');
+      // 尝试用 Web Speech 回退
+      this._startWebSpeechRecognition();
       return;
     }
 
@@ -329,8 +335,7 @@ const App = {
       this.state.recognitionRestartTimer = null;
     }
     // 停止 Capacitor 原生识别
-    const sr = (window._TeleprompterSpeech && window._TeleprompterSpeech.SpeechRecognition)
-      || (window.Capacitor?.Plugins?.SpeechRecognition);
+    const sr = this.state._srPlugin;
     if (sr) {
       try { sr.stop(); } catch (e) { /* 忽略 */ }
     }
@@ -750,7 +755,7 @@ const App = {
     return m + ':' + s;
   },
 
-  /** 从视频流截取一帧（WKWebView 100% 可靠） */
+  /** 从视频流截取一帧并保存到相册 (WKWebView 兼容) */
   _takeCanvasSnapshot() {
     const video = document.getElementById('cameraVideo');
     if (!video || video.readyState < 2) {
@@ -775,12 +780,40 @@ const App = {
       requestAnimationFrame(() => { flash.style.transition = 'opacity 0.35s'; flash.style.opacity = '0'; });
       setTimeout(() => flash.remove(), 400);
 
-      // 保存图片
-      const link = document.createElement('a');
-      link.download = 'teleprompter-' + Date.now() + '.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      console.log('[Camera] 截图已保存');
+      // 使用 navigator.share 保存图片（iOS 15+ WKWebView 兼容）
+      // link.click() 在 WKWebView 中无法触发 data URL 下载
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          console.warn('[Camera] canvas.toBlob 失败');
+          return;
+        }
+        const file = new File([blob], 'teleprompter-' + Date.now() + '.png', { type: 'image/png' });
+
+        // 优先使用 Web Share API (触发 iOS 分享面板 → 保存图片)
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file] });
+            console.log('[Camera] 截图已通过分享面板保存');
+          } catch (e) {
+            // 用户取消分享不算错误
+            if (e.name !== 'AbortError') {
+              console.warn('[Camera] 分享失败:', e.message || e);
+            }
+          }
+        } else {
+          // 回退：创建 Blob URL 下载（桌面浏览器测试用）
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'teleprompter-' + Date.now() + '.png';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          console.log('[Camera] 截图已通过下载链接保存');
+        }
+      }, 'image/png');
+
     } catch (e) {
       console.warn('[Camera] 截图失败:', e);
     }

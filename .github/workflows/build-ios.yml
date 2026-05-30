@@ -21,12 +21,6 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Bundle Speech Recognition plugin
-        run: |
-          set -ex
-          npx esbuild www/js/sr-entry.js --bundle --format=iife --global-name=_TeleprompterSpeech --outfile=www/js/sr-bundle.js
-          echo "sr-bundle.js built. Size: $(wc -c < www/js/sr-bundle.js) bytes"
-
       - name: Add iOS platform
         run: npx cap add ios
 
@@ -36,6 +30,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist
           /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要麦克风来识别您的朗读，实现AI跟读功能'" ios/App/App/Info.plist
           /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string '智能提词器使用语音识别追踪朗读进度，实现文字跟随滚动'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string '智能提词器需要保存拍摄的照片到您的相册'" ios/App/App/Info.plist
 
       - name: Sync web assets to iOS
         run: npx cap sync ios
