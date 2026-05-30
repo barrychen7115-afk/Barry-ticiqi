@@ -27,10 +27,10 @@ jobs:
       - name: Add permissions to Info.plist
         run: |
           set -ex
-          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要麦克风来识别您的朗读，实现AI跟读功能'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string '智能提词器使用语音识别追踪朗读进度，实现文字跟随滚动'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string '智能提词器需要保存拍摄的照片到您的相册'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '逆象提词使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '逆象提词需要麦克风来识别您的朗读，实现AI跟读功能'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string '逆象提词使用语音识别追踪朗读进度，实现文字跟随滚动'" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string '逆象提词需要保存拍摄的照片到您的相册'" ios/App/App/Info.plist
 
       - name: Sync web assets to iOS
         run: npx cap sync ios

@@ -47,41 +47,21 @@ const App = {
     this._detectSpeechCapability();
   },
 
-  /** 检测可用的语音识别引擎 */
+  /** 检测/初始化可用的语音识别引擎
+   *  在 Capacitor 原生环境中，延迟到用户点击 AI 模式时才检测，
+   *  因为此时 bridge 肯定已经初始化完成
+   */
   _detectSpeechCapability() {
-    const isNative = window.Capacitor?.isNativePlatform?.() === true;
-    const hasPlugin = !!window.Capacitor?.Plugins?.SpeechRecognition;
-
-    if (isNative && hasPlugin) {
-      this.state.recognitionType = 'capacitor';
-      this.state._srPlugin = null;
-      console.log('[Speech] Capacitor 原生 SpeechRecognition 插件可用');
+    // 只要不在原生环境，就标记 null 让后续逻辑回退到 Web Speech
+    if (!window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) {
+      // 浏览器环境：检查 Web Speech
+      const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
+      this.state.recognitionType = WS ? 'webspeech' : null;
       return;
     }
-
-    if (isNative && !hasPlugin && typeof window.Capacitor?.registerPlugin === 'function') {
-      try {
-        const sr = window.Capacitor.registerPlugin('SpeechRecognition', { web: () => ({}) });
-        if (sr) {
-          this.state.recognitionType = 'capacitor';
-          this.state._srPlugin = null;
-          console.log('[Speech] Capacitor SpeechRecognition 插件注册成功');
-          return;
-        }
-      } catch (e) {
-        console.warn('[Speech] Capacitor registerPlugin SpeechRecognition 失败:', e);
-      }
-    }
-
-    const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (WS) {
-      this.state.recognitionType = 'webspeech';
-      console.log('[Speech] 检测到 Web Speech API');
-      return;
-    }
-
-    this.state.recognitionType = null;
-    console.warn('[Speech] 当前平台无可用语音识别引擎');
+    // 原生环境：先假设可用，等 startVoiceDetection 时再真正初始化
+    this.state.recognitionType = 'capacitor';
+    this.state._srPlugin = null;
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -304,22 +284,40 @@ const App = {
 
   /** Capacitor 原生语音识别 (iOS SFSpeechRecognizer) */
   async _startCapacitorRecognition() {
-    // 尝试从 Capacitor.Plugins 获取或通过 registerPlugin 注册插件
-    if (!this.state._srPlugin && window.Capacitor) {
+    // 每次都重新尝试获取插件（bridge 随时可能就绪）
+    let SR = this.state._srPlugin;
+
+    if (!SR && window.Capacitor) {
       try {
-        if (window.Capacitor.Plugins?.SpeechRecognition) {
-          this.state._srPlugin = window.Capacitor.Plugins.SpeechRecognition;
+        // 方法1：直接从 Capacitor.Plugins 获取（cap sync 后自动注册）
+        if (window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition) {
+          SR = window.Capacitor.Plugins.SpeechRecognition;
           console.log('[Speech] 从 Capacitor.Plugins 获取 SpeechRecognition');
-        } else if (typeof window.Capacitor.registerPlugin === 'function') {
-          this.state._srPlugin = window.Capacitor.registerPlugin('SpeechRecognition');
-          console.log('[Speech] 通过 registerPlugin 获取 SpeechRecognition');
+        }
+        // 方法2：手动 registerPlugin（bridge 就绪后调用才有效）
+        else if (typeof window.Capacitor.registerPlugin === 'function') {
+          SR = window.Capacitor.registerPlugin('SpeechRecognition', {
+            web: () => ({ 
+              available: () => Promise.resolve({ available: false }),
+              start: () => Promise.resolve(),
+              stop: () => Promise.resolve(),
+              addListener: () => Promise.resolve({ remove: () => {} }),
+              requestPermissions: () => Promise.resolve({ speechRecognition: 'granted' }),
+              checkPermissions: () => Promise.resolve({ speechRecognition: 'granted' }),
+              removeAllListeners: () => Promise.resolve(),
+            })
+          });
+          console.log('[Speech] 通过 registerPlugin 注册 SpeechRecognition');
         }
       } catch (e) {
         console.warn('[Speech] SpeechRecognition 插件获取失败:', e.message || e);
       }
+
+      if (SR) {
+        this.state._srPlugin = SR;
+      }
     }
 
-    const SR = this.state._srPlugin;
     if (!SR) {
       console.warn('[Speech] Capacitor SpeechRecognition 插件不可用，尝试 Web Speech 回退');
       this._startWebSpeechRecognition();
@@ -327,22 +325,34 @@ const App = {
     }
 
     try {
-      // 检查权限
-      const permResult = await SR.requestPermission();
-      if (!permResult.granted) {
+      // 检查并请求权限
+      let permResult = null;
+      try {
+        permResult = await SR.checkPermissions();
+      } catch (e) { /* 某些版本可能没有 checkPermissions */ }
+
+      if (!permResult || (permResult.speechRecognition !== 'granted' && permResult.speechRecognition !== 'limited')) {
+        try {
+          permResult = await SR.requestPermissions();
+        } catch (e) {
+          console.warn('[Speech] 请求权限失败:', e.message || e);
+        }
+      }
+
+      if (permResult && permResult.speechRecognition !== 'granted' && permResult.speechRecognition !== 'limited') {
         alert('需要语音识别权限才能使用 AI 跟读功能。\n请在系统设置中允许麦克风和语音识别。');
         return;
       }
 
       // 检查可用性
       const availResult = await SR.available();
-      if (!availResult.available) {
-        alert('此设备不支持语音识别。');
+      if (!availResult || !availResult.available) {
+        alert('此设备不支持语音识别，或语音识别服务当前不可用。');
         return;
       }
 
       this.state.isRecognitionActive = true;
-      console.log('[Speech] 原生识别引擎已启动');
+      console.log('[Speech] 原生识别引擎已启动，等待语音输入...');
 
       // 监听部分结果（实时）
       SR.addListener('partialResults', (data) => {
@@ -351,18 +361,27 @@ const App = {
         if (this.state.scrollMode !== 'ai') return;
         if (data.matches && data.matches.length > 0) {
           const transcript = data.matches[0];
-          this.state.lastRecognizedWords = transcript;
-          this._processRecognizedText(transcript);
+          if (transcript && transcript.trim().length > 0) {
+            this.state.lastRecognizedWords = transcript;
+            this._processRecognizedText(transcript);
+          }
         }
+      });
+
+      // 监听状态变化（调试用）
+      SR.addListener('listeningState', (data) => {
+        console.log('[Speech] 监听状态:', data.status);
       });
 
       // 开始持续监听
       await SR.start({
         language: 'zh-CN',
-        maxResults: 2,
+        maxResults: 5,
         partialResults: true,
         popup: false,
       });
+
+      console.log('[Speech] SR.start() 调用成功，正在监听...');
 
     } catch (e) {
       console.warn('[Speech] 原生识别启动失败:', e.message || e);
