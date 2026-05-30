@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.teleprompter.pro',
-  appName: '智能提词器 Pro',
+  appName: '逆象提词',
   webDir: 'www',
 
   // iOS 专属配置

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-智能提词器 Pro — 简洁现代 App 图标
+逆象提词 — 简洁现代 App 图标
 清新蓝白配色 + 极简提词符符号
 """
 import os, sys, math
@@ -64,6 +64,22 @@ for lc, lw, ly in zip(line_colors, line_widths, line_y):
         [CX - lw // 2, ly - 8, CX + lw // 2, ly + 8],
         radius=12, fill=(*lc[:3], 220)
     )
+
+# ── 5b. 渲染"逆象"文字在卡片上 ──
+try:
+    font_path = r"C:\Windows\Fonts\msyhbd.ttc"
+    font_size = 72
+    font = ImageFont.truetype(font_path, font_size)
+except Exception:
+    font = ImageFont.load_default()
+
+text = "逆象"
+bbox = draw.textbbox((0, 0), text, font=font)
+tw = bbox[2] - bbox[0]
+th = bbox[3] - bbox[1]
+tx = CX - tw // 2
+ty = CY - th // 2 - 80
+draw.text((tx, ty), text, fill=(28, 130, 252, 255), font=font)
 
 # ── 6. 播放三角 + 高亮标记 ──
 # 红色高亮块（当前行）
