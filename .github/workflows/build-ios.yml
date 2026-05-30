@@ -24,31 +24,18 @@ jobs:
       - name: Add iOS platform
         run: npx cap add ios
 
-      - name: Generate app icon (Pillow)
-        run: |
-          pip3 install --quiet Pillow
-          python3 scripts/generate-icon.py
-
-      - name: Generate iOS app icons
-        run: |
-          npm install -g @capacitor/assets
-          capacitor-assets generate --ios \
-            --iconBackgroundColor '#0a0f28' \
-            --iconBackgroundColorDark '#0a0f28' \
-            --splashBackgroundColor '#0a0f28' \
-            --splashBackgroundColorDark '#0a0f28' \
-            --logoSplashScale 0.4
-
       - name: Add permissions to Info.plist
         run: |
-          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要麦克风检测您的朗读音量，实现AI音量感应跟读'" ios/App/App/Info.plist
+          set -ex
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '智能提词器使用前置相机拍摄，提词文字悬浮在画面上方'" ios/App/App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '智能提词器需要麦克风检测您的朗读音量，实现AI音量感应跟读'" ios/App/App/Info.plist || true
 
       - name: Sync web assets to iOS
         run: npx cap sync ios
 
       - name: Build unsigned iOS app
         run: |
+          set -ex
           cd ios/App
           xcodebuild \
             -workspace App.xcworkspace \
@@ -63,6 +50,7 @@ jobs:
 
       - name: Package as IPA
         run: |
+          set -ex
           APP_PATH="ios/DerivedData/Build/Products/Release-iphoneos/App.app"
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
