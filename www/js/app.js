@@ -1,6 +1,6 @@
 /**
- * 智能提词器 Pro — v2.3
- * 前置摄像头 · 音量感应跟读 · 文字浮镜
+ * 智能提词器 Pro — v2.4
+ * 前置摄像头 · Web Speech 真·语音跟读 · 文字浮镜
  * Capacitor · iPhone 13
  */
 
@@ -23,21 +23,18 @@ const App = {
     // 相机
     cameraStream: null,
     hasCamera: false,
-    // 音量感应
-    audioCtx: null,
-    analyser: null,
-    voiceTimer: null,
-    isSpeaking: false,
-    silenceStart: 0,
-    volumeHistory: [],
-    noiseFloor: 30,        // 环境噪音基线（动态校准）
-    lastSpeechTime: 0,     // 上次检测到说话的时间
+    // 语音识别跟读
+    recognition: null,
+    isRecognitionActive: false,
+    lastRecognizedWords: '', // 上次识别到的文本，用于增量匹配
+    recognitionRestartTimer: null,
+    // 注意：NSSpeechRecognitionUsageDescription 已配置在 Info.plist
   },
 
   /* ─── 初始化 ─── */
   init() {
     document.addEventListener('gesturestart', e => e.preventDefault());
-    console.log('[提词器 v2.3] 前置镜头 · 音量感应跟读 · 文字浮镜');
+    console.log('[提词器 v2.4] 前置镜头 · Web Speech 真跟读 · 文字浮镜');
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -150,86 +147,183 @@ const App = {
     this.state.hasCamera = false;
   },
 
-  /* ═══════ 音量感应跟读 ═══════ */
+  /* ═══════ Web Speech 真·语音跟读 ═══════ */
   async _startVoiceDetection() {
     this._stopVoiceDetection();
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[Speech] 浏览器不支持语音识别');
+      // 回退：自动滚屏
+      this.state.scrollMode = 'auto';
+      document.getElementById('modeAuto').classList.add('active');
+      document.getElementById('modeAI').classList.remove('active');
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.continuous = true;       // 持续监听，不因停顿而结束
+    rec.interimResults = true;   // 实时返回中间结果
+    rec.lang = 'zh-CN';          // 中文普通话
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (event) => this._onSpeechResult(event);
+    rec.onerror = (event) => {
+      console.warn('[Speech] 识别错误:', event.error, event.message);
+      // 非致命错误（如 no-speech）自动重启
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        this._scheduleRecognitionRestart();
+      }
+    };
+    rec.onend = () => {
+      console.log('[Speech] 识别会话结束，自动重启');
+      this._scheduleRecognitionRestart();
+    };
+
+    this.state.recognition = rec;
+    this.state.lastRecognizedWords = '';
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      const actx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = actx.createMediaStreamSource(stream);
-      const analyser = actx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.3;
-      source.connect(analyser);
-
-      this.state.audioCtx = actx;
-      this.state.analyser = analyser;
-      this.state._audioStream = stream;
-      this.state.noiseFloor = 30;
-      this.state.volumeHistory = [];
-
-      console.log('[VAD] 音量感应已启动');
-      this._voiceLoop();
+      rec.start();
+      this.state.isRecognitionActive = true;
+      console.log('[Speech] 语音识别已启动 (zh-CN)');
     } catch (e) {
-      console.warn('[VAD] 麦克风不可用:', e.message);
+      console.warn('[Speech] 启动失败:', e.message);
     }
   },
 
   _stopVoiceDetection() {
-    if (this.state.voiceTimer) { clearTimeout(this.state.voiceTimer); this.state.voiceTimer = null; }
-    if (this.state.audioCtx) {
-      this.state.audioCtx.close().catch(() => {});
-      this.state.audioCtx = null;
-      this.state.analyser = null;
+    this.state.isRecognitionActive = false;
+    if (this.state.recognitionRestartTimer) {
+      clearTimeout(this.state.recognitionRestartTimer);
+      this.state.recognitionRestartTimer = null;
     }
-    if (this.state._audioStream) {
-      this.state._audioStream.getTracks().forEach(t => t.stop());
-      this.state._audioStream = null;
+    if (this.state.recognition) {
+      try { this.state.recognition.stop(); } catch (e) {}
+      this.state.recognition = null;
+    }
+    this.state.lastRecognizedWords = '';
+  },
+
+  /** 识别结束后延迟重启（处理短暂停顿） */
+  _scheduleRecognitionRestart() {
+    if (!this.state.isRecognitionActive) return;
+    if (this.state.recognitionRestartTimer) return;
+    this.state.recognitionRestartTimer = setTimeout(() => {
+      this.state.recognitionRestartTimer = null;
+      if (!this.state.isRecognitionActive) return;
+      const rec = this.state.recognition;
+      if (rec) {
+        try { rec.start(); console.log('[Speech] 识别已重启'); }
+        catch (e) { console.warn('[Speech] 重启失败:', e.message); }
+      }
+    }, 800);
+  },
+
+  /** 处理识别结果 — 核心匹配逻辑 */
+  _onSpeechResult(event) {
+    if (!this.state.isRunning || this.state.isPaused) return;
+    if (this.state.scrollMode !== 'voice') return;
+
+    // 收集所有识别到的文本（取最后一段连续结果）
+    let transcript = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    if (!transcript.trim()) return;
+
+    this.state.lastRecognizedWords = transcript.trim();
+    // console.log('[Speech] 识别:', this.state.lastRecognizedWords);
+
+    // 在脚本中找匹配位置
+    const matchIdx = this._findBestMatch(this.state.lastRecognizedWords);
+    if (matchIdx >= 0) {
+      // 找到了！跳到匹配位置
+      this._jumpToWord(matchIdx);
     }
   },
 
-  _voiceLoop() {
-    if (!this.state.isRunning && this.state.scrollMode !== 'voice') { this._stopVoiceDetection(); return; }
-    if (!this.state.analyser || this.state.isPaused) {
-      this.state.voiceTimer = setTimeout(() => this._voiceLoop(), 200);
-      return;
-    }
+  /** 模糊匹配：用识别到的文本在脚本词数组中找最佳位置 */
+  _findBestMatch(recognizedText) {
+    const words = this.state.words;
+    if (!words.length) return -1;
 
-    // 读取音量
-    const buf = new Uint8Array(this.state.analyser.frequencyBinCount);
-    this.state.analyser.getByteFrequencyData(buf);
-    let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i];
-    const vol = sum / buf.length; // 0-255
+    // 取识别文本的最后 2~6 个汉字/词作为搜索模式
+    const rClean = recognizedText.replace(/[，。！？、；：""''（）【】\s,.!?;:'"()]/g, '');
+    if (rClean.length < 2) return -1;
 
-    // 动态噪音校准（每 800ms 取最低音量）
-    this.state.volumeHistory.push(vol);
-    if (this.state.volumeHistory.length > 40) this.state.volumeHistory.shift();
-    if (this.state.volumeHistory.length >= 20) {
-      const sorted = [...this.state.volumeHistory].sort((a, b) => a - b);
-      this.state.noiseFloor = sorted[Math.floor(sorted.length * 0.15)] * 1.4 + 5;
-    }
+    // 滑动窗口：在脚本词数组中找最佳匹配
+    const searchLen = Math.min(rClean.length, 12);
+    const pattern = rClean.slice(-searchLen); // 取尾部作为特征
 
-    const threshold = Math.max(20, this.state.noiseFloor);
+    let bestIdx = -1;
+    let bestScore = 0;
 
-    if (vol > threshold) {
-      this.state.isSpeaking = true;
-      this.state.lastSpeechTime = performance.now();
-      this.state.silenceStart = 0;
-    } else {
-      if (!this.state.silenceStart) this.state.silenceStart = performance.now();
-      const silenceMs = performance.now() - this.state.silenceStart;
-      if (silenceMs > 1200) {
-        this.state.isSpeaking = false;
+    // 沿脚本滑动窗口，每次移动一个词
+    let scriptBuf = '';
+    let bufStartIdx = 0;
+
+    for (let i = 0; i < words.length; i++) {
+      // 只取中文字符做匹配
+      const clean = words[i].replace(/[，。！？、；：""''（）【】\s,.!?;:'"()]/g, '');
+      scriptBuf += clean;
+
+      // 保持窗口大小
+      while (scriptBuf.length > searchLen + 20 && bufStartIdx < i) {
+        const oldClean = words[bufStartIdx].replace(/[，。！？、；：""''（）【】\s,.!?;:'"()]/g, '');
+        scriptBuf = scriptBuf.slice(oldClean.length);
+        bufStartIdx++;
+      }
+
+      // 计算相似度（简单滑动匹配）
+      const score = this._similarity(pattern, scriptBuf.slice(-Math.min(scriptBuf.length, searchLen * 2)));
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
       }
     }
 
-    // 根据说话状态控制滚屏
-    if (this.state.scrollMode === 'voice' && !this.state.isPaused) {
-      // 说话 → 正常滚；不说话 → 缓慢滚（不暂停，给用户追踪感）
-      this.state._voiceScrollSpeed = this.state.isSpeaking ? 1.0 : 0.15;
+    // 只有匹配度够高才更新位置（避免噪音误判）
+    if (bestScore > 0.35 && bestIdx > this.state.currentWordIndex) {
+      return bestIdx;
+    }
+    return -1;
+  },
+
+  /** 简单字符级相似度（基于最长公共子序列） */
+  _similarity(a, b) {
+    if (!a || !b) return 0;
+    // 在 b 中滑动搜索 a
+    let best = 0;
+    for (let offset = 0; offset <= Math.max(0, b.length - Math.floor(a.length * 0.6)); offset++) {
+      let matches = 0;
+      for (let i = 0; i < a.length && (offset + i) < b.length; i++) {
+        if (a[i] === b[offset + i]) matches++;
+      }
+      best = Math.max(best, matches / a.length);
+    }
+    return best;
+  },
+
+  /** 跳到指定词位置并高亮 */
+  _jumpToWord(targetIdx) {
+    // 如果目标已经在当前之后且差距不大（<3词），保持自然过渡
+    const gap = targetIdx - this.state.currentWordIndex;
+    if (gap <= 0) return;
+    if (gap < 3) return; // 差距太小，避免频繁跳动
+
+    // 批量更新：把 currentWordIndex 到 targetIdx-1 之间的词标为已读
+    for (let i = this.state.currentWordIndex; i < targetIdx; i++) {
+      const el = document.getElementById('w' + i);
+      if (el) {
+        el.className = 'word read';
+        el.style.color = '';
+        el.style.background = '';
+      }
     }
 
-    this.state.voiceTimer = setTimeout(() => this._voiceLoop(), 150);
+    this.state.currentWordIndex = targetIdx;
+    this._highlightCurrent(false); // 不用 smooth（跳转要快）
   },
 
   /* ═══════ 解析台词 ═══════ */
@@ -277,8 +371,7 @@ const App = {
     this.state.isPaused = false;
     this.state.isRunning = true;
     this.state.textHidden = false;
-    this.state.isSpeaking = false;
-    this.state.silenceStart = 0;
+    this.state.lastRecognizedWords = '';
 
     const overlay = document.getElementById('prompter-overlay');
     overlay.style.display = 'block';
@@ -321,10 +414,16 @@ const App = {
     const loop = () => {
       if (!this.state.isRunning) return;
       if (!this.state.isPaused && !this.state.textHidden) {
-        const factor = this.state.scrollMode === 'voice' ? (this.state._voiceScrollSpeed || 1.0) : 1.0;
+        if (this.state.scrollMode === 'voice') {
+          // 语音模式：不自驱推进，仅刷新高亮
+          this._highlightCurrent(true);
+          this.state.scrollTimer = setTimeout(loop, 400);
+          return;
+        }
+        // 匀速模式：按速度推进
         this._advanceWord();
         this._highlightCurrent(true);
-        this.state.scrollTimer = setTimeout(loop, Math.max(80, base / (this.state.speed * factor)));
+        this.state.scrollTimer = setTimeout(loop, Math.max(80, base / this.state.speed));
         return;
       }
       this.state.scrollTimer = setTimeout(loop, 300);
