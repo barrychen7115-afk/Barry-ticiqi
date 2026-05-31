@@ -320,6 +320,9 @@ input[type=range]::-webkit-slider-thumb {
   inset: 0;
   z-index: 1000;
 }
+#prompter-overlay.active {
+  display: block;
+}
 
 .camera-bg {
   position: absolute;
