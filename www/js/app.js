@@ -30,6 +30,7 @@ const App = {
     _audioCtx: null,
     _analyser: null,
     _volumePaused: false,
+    _micOnlyStream: null,         // 独立麦克风流（cameraStream无音频轨时使用）
     // 录制
     isRecording: false,
     recordingTimer: null,
@@ -533,9 +534,20 @@ const App = {
   },
 
   /** 降级：音量感应（仅控制滚动速度，无文字定位） */
-  _startVolumeDetection() {
-    const stream = this.state.cameraStream;
-    if (!stream) { console.warn('[Volume] 无媒体流'); return; }
+  async _startVolumeDetection() {
+    // 优先使用相机流的音频轨道；若无音频轨道，则独立申请麦克风流
+    let stream = this.state.cameraStream;
+    const hasAudio = stream && stream.getAudioTracks && stream.getAudioTracks().length > 0;
+    if (!hasAudio) {
+      console.warn('[Volume] cameraStream 无音频轨，尝试单独申请麦克风...');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        this.state._micOnlyStream = stream; // 记录独立麦克风流，停止时释放
+      } catch (e) {
+        console.warn('[Volume] 麦克风权限被拒:', e.message || e);
+        return;
+      }
+    }
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioCtx.createMediaStreamSource(stream);
@@ -581,6 +593,11 @@ const App = {
     if (this.state._audioCtx) { try { this.state._audioCtx.close(); } catch(e){} this.state._audioCtx = null; }
     this.state._analyser = null;
     this.state._volumePaused = false;
+    // 释放独立麦克风流（如果有的话）
+    if (this.state._micOnlyStream) {
+      this.state._micOnlyStream.getTracks().forEach(t => t.stop());
+      this.state._micOnlyStream = null;
+    }
   },
 
   /* ═══════ 相机拍摄 & 录制 ═══════ */
