@@ -12,7 +12,7 @@ const App = {
     opacity: 90,
     lineHeight: 2.2,
     // 滚屏
-    scrollMode: 'auto',    // 'auto' | 'ai'
+    scrollMode: 'auto',    // 'auto' | 'voice'
     speed: 1,
     isPaused: false,
     isRunning: false,
@@ -23,15 +23,13 @@ const App = {
     // 相机
     cameraStream: null,
     hasCamera: false,
-    // 语音识别跟读 (Capacitor 原生 SFSpeechRecognizer)
-    recognition: null,           // Web Speech 实例
-    _srPlugin: null,             // Capacitor 注册的 SpeechRecognition 插件引用
-    recognitionType: null,       // 'capacitor' | 'webspeech' | null
+    // 语音识别跟随
     isRecognitionActive: false,
-    lastRecognizedWords: '',
-    recognitionRestartTimer: null,
-    sensitivity: 7,              // 跟读灵敏度 1-10
-    algoMode: 'fuzzy',           // 'fuzzy' | 'strict' | 'semantic'
+    _speechRec: null,             // SpeechRecognition 实例
+    _volumeTimer: null,           // 音量检测降级用
+    _audioCtx: null,
+    _analyser: null,
+    _volumePaused: false,
     // 录制
     isRecording: false,
     recordingTimer: null,
@@ -44,26 +42,7 @@ const App = {
   /* ─── 初始化 ─── */
   init() {
     document.addEventListener('gesturestart', e => e.preventDefault());
-    console.log('[提词器 v2.5] 前置镜头 · 原生语音跟读 · 相机拍摄 · 文字浮镜');
-    // 预检测语音识别能力
-    this._detectSpeechCapability();
-  },
-
-  /** 检测/初始化可用的语音识别引擎
-   *  在 Capacitor 原生环境中，延迟到用户点击 AI 模式时才检测，
-   *  因为此时 bridge 肯定已经初始化完成
-   */
-  _detectSpeechCapability() {
-    // 只要不在原生环境，就标记 null 让后续逻辑回退到 Web Speech
-    if (!window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) {
-      // 浏览器环境：检查 Web Speech
-      const WS = window.SpeechRecognition || window.webkitSpeechRecognition;
-      this.state.recognitionType = WS ? 'webspeech' : null;
-      return;
-    }
-    // 原生环境：先假设可用，等 startVoiceDetection 时再真正初始化
-    this.state.recognitionType = 'capacitor';
-    this.state._srPlugin = null;
+    console.log('[逆象提词 v3.0] 语音跟随 · 前置镜头 · 视频录制');
   },
 
   /* ═══════ 页面导航 ═══════ */
@@ -128,14 +107,6 @@ const App = {
     content.style.fontSize = this.state.fontSize + 'px';
     content.style.lineHeight = this.state.lineHeight;
     content.style.opacity = this.state.opacity / 100;
-  },
-
-  _showSpeechUnavailableMessage() {
-    alert(
-      'AI 跟读当前不可用。\n\n' +
-      '请确认你在 iOS 原生 Capacitor 应用中运行，并已经安装并同步 @capacitor-community/speech-recognition 插件。\n' +
-      '如果当前环境不支持语音识别，可以继续使用自动滚动或手动拖动文本。'
-    );
   },
 
   _setupPrompterScrollInteractions() {
@@ -203,34 +174,28 @@ const App = {
     }
   },
 
+  /* ═══════ 主页语音跟随开关 ═══════ */
+  toggleAI(checked) {
+    this.setScrollMode(checked ? 'voice' : 'auto');
+  },
+
   /* ═══════ 模式切换 ═══════ */
   setScrollMode(mode) {
-    // 兼容 'ai' 和 'voice' 两种传参
-    const normalized = (mode === 'ai' || mode === 'voice') ? 'ai' : 'auto';
+    // 兼容各种传参
+    const normalized = (mode === 'ai' || mode === 'voice') ? 'voice' : 'auto';
     this.state.scrollMode = normalized;
     document.getElementById('modeAuto').classList.toggle('active', normalized === 'auto');
-    document.getElementById('modeAI').classList.toggle('active', normalized === 'ai');
+    document.getElementById('modeAI').classList.toggle('active', normalized === 'voice');
 
-    // 同步主页 AI 开关
+    // 同步主页语音跟随开关
     const aiToggle = document.getElementById('aiToggle');
-    if (aiToggle) aiToggle.checked = (normalized === 'ai');
+    if (aiToggle) aiToggle.checked = (normalized === 'voice');
     const aiLabel = document.getElementById('aiLabel');
-    if (aiLabel) aiLabel.textContent = normalized === 'ai' ? '已开启' : '已关闭';
+    if (aiLabel) aiLabel.textContent = normalized === 'voice' ? '已开启' : '已关闭';
 
-    if (normalized === 'ai') {
-      if (this.state.recognitionType === null) {
-        // 还没检测过，重新检测
-        this._detectSpeechCapability();
-      }
-      if (this.state.recognitionType) {
+    if (normalized === 'voice') {
+      if (this.state.isRunning) {
         this._startVoiceDetection();
-      } else {
-        alert('AI 跟读当前不可用。\n\n请确认你在 iOS 原生 Capacitor 应用中运行，并已经安装并同步 @capacitor-community/speech-recognition 插件。');
-        this.state.scrollMode = 'auto';
-        document.getElementById('modeAuto').classList.add('active');
-        document.getElementById('modeAI').classList.remove('active');
-        if (aiToggle) aiToggle.checked = false;
-        if (aiLabel) aiLabel.textContent = '不可用';
       }
     } else {
       this._stopVoiceDetection();
@@ -262,8 +227,8 @@ const App = {
     // 启动滚动
     this._startAutoScroll();
 
-    // 如果 AI 模式，启动音量检测
-    if (this.state.scrollMode === 'ai') {
+    // 如果语音跟随模式，启动识别
+    if (this.state.scrollMode === 'voice') {
       await this._startVoiceDetection();
     }
 
@@ -284,13 +249,13 @@ const App = {
     this._stopAutoScroll();
     const tick = () => {
       if (!this.state.isRunning || this.state.isPaused) return;
-      if (this.state.scrollMode === 'ai' && this.state._volumePaused) {
-        // AI 模式 + 静音 → 极慢滚动
+      if (this.state.scrollMode === 'voice' && this.state._volumePaused) {
+        // 语音跟随模式 + 静音 → 极慢滚动
         this._scrollBy(0.15 * this.state.speed);
         this.state.scrollTimer = setTimeout(tick, 100);
         return;
       }
-      const speed = this.state.scrollMode === 'ai' ? this.state.speed * 0.8 : this.state.speed;
+      const speed = this.state.scrollMode === 'voice' ? this.state.speed * 0.8 : this.state.speed;
       this._scrollBy(speed);
       this.state.scrollTimer = setTimeout(tick, 50);
     };
@@ -409,17 +374,168 @@ const App = {
     this.state.hasCamera = false;
   },
 
-  /* ═════ 音量感应跟读（稳定可靠，不需要语音识别） ═════ */
+  /* ═════ 语音跟随引擎（Web Speech API + 模糊匹配定位） ═════ */
+
+  /**
+   * 启动语音跟随：优先使用 Web Speech API 识别说话内容，
+   * 通过模糊匹配在台词中定位当前位置，即使漏读几个字也能跟随。
+   * 降级方案：若不支持语音识别，则回退到音量感应模式。
+   */
   async _startVoiceDetection() {
     this._stopVoiceDetection();
-    this._startVolumeDetection();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      this._startSpeechTracking(SR);
+    } else {
+      console.warn('[Voice] 不支持 SpeechRecognition，回退到音量感应模式');
+      this._startVolumeDetection();
+    }
   },
 
-  /** 启动音量检测（AnalyserNode） */
+  /** 语音识别跟随核心 */
+  _startSpeechTracking(SR) {
+    const rec = new SR();
+    rec.lang = 'zh-CN';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    this.state._speechRec = rec;
+    this.state.isRecognitionActive = true;
+
+    // 提取纯文字（去标点空格）用于匹配
+    const plainWords = this.state.words.map(w => w.replace(/[\s，。！？、；：""''（）【】\n]/g, ''));
+    // 拼接成连续字符串便于滑窗搜索
+    const fullText = plainWords.join('');
+    // 每个字对应原始 words 的索引
+    const charToWordIdx = [];
+    plainWords.forEach((w, wi) => { for (let c = 0; c < w.length; c++) charToWordIdx.push(wi); });
+
+    // 上次确认的字符位置（防止往回跳）
+    let confirmedCharPos = 0;
+
+    /**
+     * 模糊匹配：在 fullText 中从 startPos 开始向后，
+     * 找到与 spoken（刚识别的字符串）相似度最高的位置
+     * 返回匹配到的 charIdx（fullText 中的起始索引）
+     */
+    const fuzzyFind = (spoken, startPos) => {
+      if (!spoken || !fullText) return -1;
+      // 去标点、空格，只保留汉字/字母数字
+      const query = spoken.replace(/[\s，。！？、；：""''（）【】\n]/g, '').slice(-12); // 取最后12字做锚点
+      if (!query) return -1;
+      const queryLen = query.length;
+      // 搜索范围：从已确认位置开始，向后最多扫 200 字
+      const searchEnd = Math.min(fullText.length - queryLen, startPos + 200);
+      let bestScore = 0;
+      let bestPos = -1;
+      for (let i = startPos; i <= searchEnd; i++) {
+        const segment = fullText.slice(i, i + queryLen);
+        const score = this._strSimilarity(query, segment);
+        if (score > bestScore) { bestScore = score; bestPos = i; }
+      }
+      // 相似度超过 0.45 才认为匹配（容错漏字）
+      return bestScore >= 0.45 ? bestPos : -1;
+    };
+
+    rec.onresult = (event) => {
+      if (!this.state.isRunning || this.state.scrollMode !== 'voice') return;
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      if (!transcript.trim()) return;
+      const charPos = fuzzyFind(transcript, confirmedCharPos);
+      if (charPos < 0) return;
+
+      // 只有 final result 才确认更新位置（interim 仅供调试）
+      const isFinal = event.results[event.results.length - 1].isFinal;
+      if (isFinal) confirmedCharPos = charPos;
+
+      const wordIdx = charToWordIdx[charPos] ?? charToWordIdx[charPos + 1];
+      if (wordIdx != null && wordIdx > this.state.currentWordIndex - 3) {
+        this._jumpToWord(wordIdx);
+        console.log('[Voice] 识别到:', transcript.slice(-8), '-> 定位到第', wordIdx, '词');
+      }
+    };
+
+    rec.onerror = (e) => {
+      if (e.error === 'no-speech') {
+        // 无声音，不算错误，继续
+        return;
+      }
+      console.warn('[Voice] 识别错误:', e.error);
+      // 权限被拒或不支持时，回退到音量感应
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        this._startVolumeDetection();
+      }
+    };
+
+    rec.onend = () => {
+      // 如果提词器仍在运行且在语音模式，自动重启识别
+      if (this.state.isRunning && this.state.scrollMode === 'voice' && this.state.isRecognitionActive) {
+        try { rec.start(); } catch(e) {}
+      }
+    };
+
+    try {
+      rec.start();
+      console.log('[Voice] 语音跟随已启动');
+    } catch(e) {
+      console.warn('[Voice] 启动失败:', e.message);
+      this._startVolumeDetection();
+    }
+  },
+
+  /**
+   * 计算两个字符串的相似度（0~1）
+   * 基于公共字符比例，适合中文容错匹配
+   */
+  _strSimilarity(a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const len = Math.max(a.length, b.length);
+    let matches = 0;
+    const used = new Array(b.length).fill(false);
+    for (let i = 0; i < a.length; i++) {
+      for (let j = Math.max(0, i - 3); j < Math.min(b.length, i + 4); j++) {
+        if (!used[j] && a[i] === b[j]) { matches++; used[j] = true; break; }
+      }
+    }
+    return matches / len;
+  },
+
+  /** 将提词器滚动到指定词（平滑动画） */
+  _jumpToWord(wordIdx) {
+    const content = document.getElementById('prompter-content');
+    if (!content) return;
+    const el = document.getElementById('w' + wordIdx);
+    if (!el) return;
+    // 目标：让该词出现在屏幕中间
+    const targetScrollTop = el.offsetTop - content.clientHeight / 2 + el.offsetHeight / 2;
+    // 平滑滚动（分多步完成，避免画面跳跃）
+    const current = content.scrollTop;
+    const diff = targetScrollTop - current;
+    if (Math.abs(diff) < 5) return;
+    // 只向前跳，不往后退（防止识别错误导致跳回）
+    if (targetScrollTop < current - 60) return;
+    const steps = 8;
+    let step = 0;
+    const animate = () => {
+      if (step >= steps) return;
+      step++;
+      content.scrollTop += diff / steps;
+      requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+    // 更新高亮
+    this.state.currentWordIndex = wordIdx;
+    this._highlightCurrent();
+  },
+
+  /** 降级：音量感应（仅控制滚动速度，无文字定位） */
   _startVolumeDetection() {
     const stream = this.state.cameraStream;
-    if (!stream) { console.warn(`[Volume] 无媒体流`); return; }
-
+    if (!stream) { console.warn('[Volume] 无媒体流'); return; }
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioCtx.createMediaStreamSource(stream);
@@ -427,41 +543,40 @@ const App = {
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
       source.connect(analyser);
-
       const buffer = new Uint8Array(analyser.frequencyBinCount);
       let isSpeaking = false;
-      const NOISE_FLOOR = 15;
-      const SPEAKING_THRESHOLD = 40;
       let silenceStart = null;
-
       this.state._audioCtx = audioCtx;
       this.state._analyser = analyser;
       this.state.isRecognitionActive = true;
-
       this.state._volumeTimer = setInterval(() => {
-        if (!this.state.isRunning || this.state.scrollMode !== `ai`) return;
+        if (!this.state.isRunning || this.state.scrollMode !== 'voice') return;
         analyser.getByteFrequencyData(buffer);
         let sum = 0;
         for (let i = 0; i < buffer.length; i++) sum += buffer[i];
         const volume = sum / buffer.length;
-
         const now = Date.now();
-        if (volume > SPEAKING_THRESHOLD) {
-          if (!isSpeaking) { isSpeaking = true; console.log(`[Volume] 说话中, 音量:`, volume.toFixed(1)); }
+        if (volume > 40) {
+          if (!isSpeaking) { isSpeaking = true; }
           silenceStart = null;
           this.state._volumePaused = false;
         } else {
-          if (isSpeaking) { isSpeaking = false; silenceStart = now; console.log(`[Volume] 静音, 音量:`, volume.toFixed(1)); }
+          if (isSpeaking) { isSpeaking = false; silenceStart = now; }
           if (silenceStart && (now - silenceStart) > 1500) { this.state._volumePaused = true; }
         }
       }, 150);
-
-      console.log(`[Volume] 音量检测已启动`);
-    } catch (e) { console.warn(`[Volume] 启动失败:`, e.message || e); }
+      console.log('[Volume] 音量感应降级模式已启动');
+    } catch (e) { console.warn('[Volume] 启动失败:', e.message || e); }
   },
 
   _stopVoiceDetection() {
     this.state.isRecognitionActive = false;
+    // 停止语音识别
+    if (this.state._speechRec) {
+      try { this.state._speechRec.stop(); } catch(e) {}
+      this.state._speechRec = null;
+    }
+    // 停止音量检测
     if (this.state._volumeTimer) { clearInterval(this.state._volumeTimer); this.state._volumeTimer = null; }
     if (this.state._audioCtx) { try { this.state._audioCtx.close(); } catch(e){} this.state._audioCtx = null; }
     this.state._analyser = null;

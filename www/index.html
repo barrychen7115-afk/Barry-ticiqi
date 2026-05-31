@@ -61,7 +61,7 @@
         </div>
 
         <div class="control-row">
-          <span class="control-label"><span class="icon">&#x1F916;</span>AI跟读</span>
+          <span class="control-label"><span class="icon">&#x1F399;</span>语音跟随</span>
           <label class="toggle">
             <input type="checkbox" id="aiToggle" checked onchange="App.toggleAI(this.checked)">
             <span class="toggle-track"></span>
@@ -159,60 +159,24 @@
   <div class="page" id="page-ai">
     <div class="main">
       <div class="about-card" style="background:linear-gradient(135deg,rgba(48,209,88,0.15),rgba(90,200,250,0.1));border-color:rgba(48,209,88,0.3)">
-        <div style="font-size:36px;margin-bottom:8px">&#x1F916;</div>
-        <div class="about-title">AI 智能跟读引擎</div>
-        <div class="about-desc">基于实时语音识别，自动追踪您朗读的位置，即使漏读一两个字也能精准跟进，无需手动控制。</div>
+        <div style="font-size:36px;margin-bottom:8px">&#x1F399;</div>
+        <div class="about-title">语音跟随引擎</div>
+        <div class="about-desc">实时识别您讲话的内容，自动追踪并定位到对应的台词位置。即使漏读几个字，也能模糊匹配找到最近的位置，无需手动控制滚动。</div>
       </div>
 
       <div class="card">
-        <div class="card-title">&#x1F3AF; 跟读灵敏度</div>
-        <div class="control-row">
-          <span class="control-label">&#x26A1; 灵敏度</span>
-          <div class="slider-wrap">
-            <input type="range" min="1" max="10" value="7" id="sensitivitySlider" oninput="App.updateSensitivity(this.value)">
-            <span class="slider-val" id="sensitivityVal">7</span>
-          </div>
-        </div>
-        <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
-          &#x1F4A1; 灵敏度越高，跟踪越激进；漏字时建议设置为 6–8
+        <div class="card-title">&#x2139; 使用说明</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.9">
+          1. 开启"语音跟随"后，点击"开始提词"<br>
+          2. 首次使用需允许麦克风和语音识别权限<br>
+          3. 正常朗读台词，提词器自动跟随<br>
+          4. 漏读几个字也没关系，模糊匹配会自动纠偏<br>
+          5. 切换"匀速滚动"可临时关闭跟随
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">&#x1F9E0; 跟读算法</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <div class="speed-btn active" onclick="App.setAlgoMode('fuzzy', this)" style="padding:12px;text-align:left">
-            <strong>模糊匹配 (推荐)</strong><br>
-            <span style="font-size:12px;color:var(--text-muted)">允许漏读1-3个字，容错率高</span>
-          </div>
-          <div class="speed-btn" onclick="App.setAlgoMode('strict', this)" style="padding:12px;text-align:left">
-            <strong>严格匹配</strong><br>
-            <span style="font-size:12px;color:var(--text-muted)">精确匹配每个字，不允许漏读</span>
-          </div>
-          <div class="speed-btn" onclick="App.setAlgoMode('semantic', this)" style="padding:12px;text-align:left">
-            <strong>语义匹配 (AI)</strong><br>
-            <span style="font-size:12px;color:var(--text-muted)">理解语义，可处理即兴发挥</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">&#x1F50A; 语音引擎</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div class="control-row">
-            <span class="control-label">离线引擎</span>
-            <label class="toggle">
-              <input type="checkbox" checked>
-              <span class="toggle-track"></span>
-              <span class="toggle-thumb"></span>
-            </label>
-          </div>
-          <div style="font-size:12px;color:var(--text-muted)">使用 iOS 原生语音识别，无需联网，保护隐私</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">&#x1F4CA; 跟读演示</div>
+        <div class="card-title">&#x1F4CA; 跟随演示</div>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;font-size:13px;line-height:2" id="aiDemoText">
           <span class="word read">大家好</span>，
           <span class="word read">欢迎来到</span>
@@ -223,7 +187,6 @@
           <span class="word upcoming">关于健康</span>
           <span class="word upcoming">饮食</span>...
         </div>
-        <button class="btn-primary" style="margin-top:12px;padding:12px" onclick="App.runDemo()">&#x25B6; 运行演示</button>
       </div>
     </div>
   </div>
@@ -283,7 +246,7 @@
     <span class="nav-icon">&#x1F3A8;</span> 样式
   </div>
   <div class="nav-item" onclick="App.switchPage('ai')">
-    <span class="nav-icon">&#x1F916;</span> AI设置
+    <span class="nav-icon">&#x1F399;</span> 语音设置
   </div>
   <div class="nav-item" onclick="App.switchPage('about')">
     <span class="nav-icon">&#x2139;&#xFE0F;</span> 关于
@@ -308,7 +271,7 @@
     <button class="tb-btn" onclick="App.toggleTextHide()" id="hideTextBtn" title="隐藏/显示文字">&#x1F441;</button>
     <div class="tb-mode">
       <button class="tb-mode-btn active" id="modeAuto" onclick="App.setScrollMode('auto')">匀速滚动</button>
-      <button class="tb-mode-btn" id="modeAI" onclick="App.setScrollMode('ai')">AI跟随</button>
+      <button class="tb-mode-btn" id="modeAI" onclick="App.setScrollMode('voice')">语音跟随</button>
     </div>
     <button class="tb-btn" onclick="App.stopPrompter()" title="退出">&#x2715;</button>
   </div>
